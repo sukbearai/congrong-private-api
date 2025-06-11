@@ -8,22 +8,33 @@ export type ServerType = 'teach' | 'study'
 let isLogout = false
 
 // 根据用户角色获取不同的 baseURL
-function getBaseURL(forceServer?: ServerType): string {
-  if (forceServer) {
-    return forceServer === 'teach'
-      ? import.meta.env.VITE_SERVER
-      : import.meta.env.VITE_SERVER
-  }
+function getBaseURL(_forceServer?: ServerType): string {
+  // if (forceServer) {
+  //   return forceServer === 'teach'
+  //     ? import.meta.env.VITE_SERVER
+  //     : import.meta.env.VITE_SERVER
+  // }
 
-  try {
-    const role = uni.getStorageSync('role')
-    return role === 'teacher'
-      ? import.meta.env.VITE_TEACH_SERVER
-      : import.meta.env.VITE_STUDY_SERVER
-  }
-  catch {
-    return import.meta.env.VITE_STUDY_SERVER
-  }
+  // try {
+  //   const role = uni.getStorageSync('role')
+  //   return role === 'teacher'
+  //     ? import.meta.env.VITE_TEACH_SERVER
+  //     : import.meta.env.VITE_STUDY_SERVER
+  // }
+  // catch {
+  //   return import.meta.env.VITE_STUDY_SERVER
+  // }
+  return import.meta.env.VITE_SERVER
+}
+
+/**
+ * API 响应格式
+ */
+export interface ApiResponse<T = any> {
+  code: number // 状态码: 0 表示成功, 其他表示错误
+  message: string // 响应消息
+  data: T | null // 响应数据
+  timestamp: number // 响应时间戳
 }
 
 export const alovaInstance = createAlova({
@@ -56,49 +67,34 @@ export const alovaInstance = createAlova({
   ...AdapterUniapp(),
 
   responded: {
-    onSuccess: async (response, method) => {
+    onSuccess: async (response) => {
       const { statusCode, data: rawData } = response as any
-      const { code, msg, payload } = rawData
 
-      if ((method?.data as any)?.ignore === true) {
-        return payload
+      // 判断HTTP状态码
+      if (statusCode === 401) {
+        if (!isLogout) {
+          await handleError(rawData.message || '登录失效', 1000)
+          const authStore = useAuthStore()
+          authStore.logout()
+          isLogout = true
+        }
+        return Promise.reject(rawData)
       }
 
-      switch (statusCode) {
-        case 401:
-          if (!isLogout) {
-            await handleError(msg || '登录失效', 1000)
-            const authStore = useAuthStore()
-            authStore.logout()
-            isLogout = true
+      if (statusCode >= 400) {
+        await handleError(rawData.message || '请求失败')
+        return Promise.reject(rawData)
+      }
 
-            // try {
-            //   // 尝试刷新 token
-            //   const newTokenRes = await authStore.refreshToken()
-            //   if (newTokenRes) {
-            //     // 重试当前请求
-            //     return method.send()
-            //   }
-            // }
-            // catch {
-            //   authStore.logout()
-            //   isLogout = true
-            // }
-          }
-          break
-
-        case 500:
-          await handleError(msg || '网络请求错误')
-          break
-
-        default:
-          if (code === '0') {
-            return payload
-          }
-          if (msg) {
-            await handleError(msg)
-          }
-          return Promise.reject(rawData)
+      // 处理业务状态码，成功时code为0
+      if (rawData.code === 0) {
+        return rawData.data
+      }
+      else {
+        if (rawData.message) {
+          await handleError(rawData.message)
+        }
+        return Promise.reject(rawData)
       }
     },
     onComplete: async () => {

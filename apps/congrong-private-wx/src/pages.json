@@ -51,6 +51,13 @@
             "navigationBarTitleText": "账号登录",
             "navigationStyle": "custom"
           }
+        },
+        {
+          "path": "webview/index",
+          "style": {
+            "navigationBarTitleText": "查看报告",
+            "navigationStyle": "custom"
+          }
         }
       ]
     },
@@ -60,7 +67,7 @@
         {
           "path": "home/index",
           "style": {
-            "navigationBarTitleText": "主页"
+            "navigationBarTitleText": "信息填写"
           }
         }
       ]

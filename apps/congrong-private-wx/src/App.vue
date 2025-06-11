@@ -66,4 +66,8 @@ svg {
     @apply raw-btn bg-gradient-to-r from-[#9e58e9] to-blue-500 px-2 py-1 text-white;
   }
 }
+
+page {
+  background-color: #f0f0f0;
+}
 </style>

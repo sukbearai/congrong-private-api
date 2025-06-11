@@ -6,9 +6,41 @@ export default defineNitroConfig({
   modules: [nitroCloudflareBindings],
   srcDir: 'server',
 
-  // routeRules: {
-  //   '/api/**': { cors: true, headers: { 'access-control-allow-methods': 'POST, GET, OPTIONS' } },
-  // },
+  experimental: {
+    tasks: true,
+  },
+
+  scheduledTasks: {
+    // Run `cms:update` task every minute
+    // '* * * * *': ['test:alarm'],
+  },
+
+  routeRules: {
+    '/api/ai/**': {
+      cors: true,
+      headers: {
+        'access-control-allow-methods': 'POST, GET, OPTIONS',
+      },
+    },
+    '/api/upload/**': {
+      cors: true,
+      headers: {
+        'access-control-allow-methods': 'POST, GET, OPTIONS',
+      },
+    },
+    '/api/device/**': {
+      cors: true,
+      headers: {
+        'access-control-allow-methods': 'POST, GET, OPTIONS',
+      },
+    },
+    '/api/user/**': {
+      cors: true,
+      headers: {
+        'access-control-allow-methods': 'POST, GET, OPTIONS',
+      },
+    },
+  },
 
   storage: {
     db: {
@@ -28,6 +60,25 @@ export default defineNitroConfig({
     appId: process.env.appId,
     appSecret: process.env.appSecret,
     jwtSecret: process.env.jwtSecret,
+    telegram: {
+      botToken: process.env.botToken,
+      proxyUrl: process.env.proxyUrl,
+      authToken: process.env.authToken,
+      tunnelUrl: process.env.tunnelUrl,
+    },
+    bybit: {
+      apiKey: process.env.bybitApiKey,
+      secretKey: process.env.bybitSecretKey,
+      bybitApiUrl: process.env.bybitApiUrl,
+    },
+    binance: {
+      apiKey: process.env.binanceApiKey,
+      secretKey: process.env.binanceSecretKey,
+      binanceApiUrl: process.env.binanceApiUrl,
+    },
+    deepseek: {
+      apiKey: process.env.deepseekApiKey,
+    }
   },
 
   preset: 'cloudflare_module',

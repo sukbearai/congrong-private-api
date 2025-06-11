@@ -1,6 +1,7 @@
 /**
  * 获取微信接口调用凭证
  * 优先从缓存中获取，过期则重新请求微信接口
+ * 将 token 放入 event.context 中供后续中间件和处理器使用
  */
 export default defineEventHandler(async (event) => {
   const { appId, appSecret } = useRuntimeConfig(event)
@@ -17,13 +18,17 @@ export default defineEventHandler(async (event) => {
     // 先尝试从缓存中获取 token
     const cachedToken = await storage.getItem(CACHE_KEY) as { access_token: string, expireTime: number } | null
 
-    // 如果缓存存在且未过期，直接返回缓存的 token
-    if (cachedToken && typeof cachedToken.expireTime === 'number' && cachedToken.expireTime > Date.now()) {
-      return createSuccessResponse({
+    // 如果缓存存在且未过期，使用缓存的 token
+    if (cachedToken && cachedToken.expireTime > Date.now()) {
+      // 将 token 信息存入 event.context
+      event.context.wechatToken = {
         access_token: cachedToken.access_token,
         expires_in: Math.floor((cachedToken.expireTime - Date.now()) / 1000),
         from_cache: true,
-      })
+      }
+
+      // 继续执行下一个处理器
+      return
     }
 
     // 缓存不存在或已过期，请求微信接口
@@ -47,11 +52,14 @@ export default defineEventHandler(async (event) => {
       expireTime,
     })
 
-    return createSuccessResponse({
+    // 将 token 信息存入 event.context
+    event.context.wechatToken = {
       access_token: data.access_token,
       expires_in: data.expires_in,
       from_cache: false,
-    })
+    }
+
+    // 继续执行下一个处理器
   }
   catch (error) {
     return createErrorResponse(

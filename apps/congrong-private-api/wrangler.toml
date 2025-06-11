@@ -26,3 +26,10 @@ binding = "DB"
 database_name = "congrong-private-api"
 database_id = "e1dc8fed-7fc3-401b-8cd9-b211429daae3"
 migrations_dir = "drizzle"
+
+[[r2_buckets]]
+binding = 'BUCKET'
+bucket_name = 'congrong-private'
+
+[ai]
+binding = "AI"

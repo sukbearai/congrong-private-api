@@ -56,6 +56,10 @@ jobs:
           appId: ${{ secrets.APP_ID }}
           appSecret: ${{ secrets.APP_SECRET }}
           jwtSecret: ${{ secrets.JWT_SECRET }}
+          botToken: ${{ secrets.BOT_TOKEN }}
+          authToken: ${{ secrets.AUTH_TOKEN }}
+          binanceApiUrl: ${{ secrets.BINANCE_API_URL }}
+          deepseekApiKey: ${{ secrets.DEEPSEEK_API_KEY }}
 
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
@@ -70,7 +74,14 @@ jobs:
             appId
             appSecret
             jwtSecret
+            botToken
+            authToken
+            binanceApiUrl
         env:
           appId: ${{ secrets.APP_ID }}
           appSecret: ${{ secrets.APP_SECRET }}
           jwtSecret: ${{ secrets.JWT_SECRET }}
+          botToken: ${{ secrets.BOT_TOKEN }}
+          authToken: ${{ secrets.AUTH_TOKEN }}
+          binanceApiUrl: ${{ secrets.BINANCE_API_URL }}
+          deepseekApiKey: ${{ secrets.DEEPSEEK_API_KEY }}

@@ -7,5 +7,5 @@ declare module 'h3' {
 export default defineEventHandler(async ({ context }) => {
   const cloudflare = context.cloudflare
   const { DB } = cloudflare.env
-  context.db = drizzle(DB, { schema, logger: true })
+  context.db = drizzle(DB as D1Database, { schema, logger: true })
 })

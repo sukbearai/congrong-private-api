@@ -8,11 +8,18 @@
     "preview": "node .output/server/index.mjs"
   },
   "devDependencies": {
+    "@ai-sdk/deepseek": "^0.2.14",
+    "@ai-sdk/openai": "^1.3.22",
+    "@cloudflare/workers-types": "github:cloudflare/workers-types",
+    "ai": "^4.3.16",
+    "date-fns": "^4.1.0",
     "drizzle-kit": "^0.30.6",
-    "drizzle-orm": "^0.41.0",
+    "drizzle-orm": "^0.44.2",
+    "grammy": "^1.36.1",
     "jose": "^6.0.10",
     "nitro-cloudflare-dev": "^0.2.2",
     "nitropack": "latest",
+    "socks-proxy-agent": "^8.0.5",
     "wrangler": "^4.7.0",
     "zod": "^3.24.2"
   }

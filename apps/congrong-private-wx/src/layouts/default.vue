@@ -11,7 +11,7 @@ defineOptions({
 })
 
 const themeVars = reactive<ConfigProviderThemeVars>({
-  colorTheme: '#3F79FE',
+  colorTheme: '#00DFBF',
   tabsNavLineBgColor: 'red',
 })
 
@@ -31,6 +31,16 @@ function handleChange({ value: index }: { value: number }) {
     uni.reLaunch({ url })
   }
 }
+
+onMounted(() => {
+  // #ifdef MP-WEIXIN
+  wx.setPageStyle({
+    style: {
+      overflow: 'hidden',
+    },
+  })
+  // #endif
+})
 </script>
 
 <template>
