@@ -1,7 +1,13 @@
+import { CoreMessage } from "ai"
+
 const textGenerationSchema = z.object({
-  prompt: z.string({
-    required_error: '提示词不能为空',
-  }).min(1, '提示词不能为空').max(2000, '提示词长度不能超过2000个字符'),
+  messages: z.array(z.object({
+    role: z.enum(['user', 'assistant', 'system']),
+    content: z.string().min(1, '消息内容不能为空')
+  })).min(1, '消息数组不能为空').refine(
+    (messages) => messages.some(msg => msg.role === 'user'),
+    '至少需要一条用户消息'
+  ),
   temperature: z.number().min(0).max(2).optional().default(0.7),
   maxTokens: z.number().min(1).max(4000).optional().default(1000),
   system: z.string().max(1000, '系统提示词长度不能超过1000个字符').optional().default(systemPrompt)
@@ -26,7 +32,7 @@ export default defineEventHandler(async (event) => {
       return createErrorResponse(errorMessages, 400)
     }
 
-    const { prompt, temperature, maxTokens, system } = validationResult.data
+    const { messages, temperature, maxTokens, system } = validationResult.data
 
     const deepseek = createDeepSeek({
       baseURL: await ai.gateway('congrong-private-ai').getUrl("deepseek"),
@@ -36,8 +42,7 @@ export default defineEventHandler(async (event) => {
     const res = await streamText({
       model: deepseek('deepseek-chat'),
       system,
-      messages: [
-        {"role": "user", "content": prompt}],
+      messages: messages as CoreMessage[],
       temperature,
       maxTokens,
     })
