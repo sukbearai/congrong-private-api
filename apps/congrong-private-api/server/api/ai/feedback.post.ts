@@ -1,6 +1,3 @@
-import { z } from 'zod'
-
-// 定义反馈类型枚举
 const FeedbackType = {
   THUMBS_UP: 'thumbs_up',      // 点赞
   THUMBS_DOWN: 'thumbs_down'   // 点踩

@@ -1,6 +1,5 @@
 import type { WechatApiError } from '~~/types'
 import { Buffer } from 'node:buffer'
-import { z } from 'zod'
 
 // 申明 H3 扩展类型，让 TypeScript 识别我们添加的 context 字段
 declare module 'h3' {

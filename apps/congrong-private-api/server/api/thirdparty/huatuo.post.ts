@@ -1,6 +1,3 @@
-import { z } from 'zod'
-
-// 定义请求验证模式
 const huatuoSchema = z.object({
   thirdAppCode: z.string({
     required_error: '缺少必要参数 thirdAppCode',

@@ -1,5 +1,4 @@
 import type { WechatApiError } from '~~/types'
-import { z } from 'zod'
 
 // 定义请求验证模式
 const phoneSchema = z.object({
