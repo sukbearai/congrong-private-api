@@ -10,6 +10,7 @@ const textGenerationSchema = z.object({
   ),
   temperature: z.number().min(0).max(2).optional().default(0.7),
   maxTokens: z.number().min(1).max(4000).optional().default(1000),
+  model: z.enum(['deepseek-chat', 'deepseek-reasoner']).optional().default('deepseek-chat'),
   system: z.string().max(1000, '系统提示词长度不能超过1000个字符').optional().default(systemPrompt)
 })
 
@@ -32,7 +33,7 @@ export default defineEventHandler(async (event) => {
       return createErrorResponse(errorMessages, 400)
     }
 
-    const { messages, temperature, maxTokens, system } = validationResult.data
+    const { messages, temperature, maxTokens, system,model } = validationResult.data
 
     const deepseek = createDeepSeek({
       baseURL: await ai.gateway('congrong-private-ai').getUrl("deepseek"),
@@ -40,14 +41,16 @@ export default defineEventHandler(async (event) => {
     })
 
     const res = await streamText({
-      model: deepseek('deepseek-chat'),
+      model: deepseek(model),
       system,
       messages: messages as CoreMessage[],
       temperature,
       maxTokens,
     })
 
-    return res.toDataStreamResponse();
+    return res.toDataStreamResponse({
+      sendReasoning: model === 'deepseek-reasoner',
+    });
 
   } catch (error) {
     return createErrorResponse(
