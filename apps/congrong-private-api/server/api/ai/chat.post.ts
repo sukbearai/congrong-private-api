@@ -3,7 +3,7 @@ const textGenerationSchema = z.object({
     required_error: '提示词不能为空',
   }).min(1, '提示词不能为空').max(2000, '提示词长度不能超过2000个字符'),
   temperature: z.number().min(0).max(2).optional().default(0.7),
-  maxTokens: z.number().min(1).max(4000).optional().default(1000),
+  maxTokens: z.number().min(1).max(10000).optional().default(8000),
   system: z.string().max(1000, '系统提示词长度不能超过1000个字符').optional().default(systemPrompt)
 })
 

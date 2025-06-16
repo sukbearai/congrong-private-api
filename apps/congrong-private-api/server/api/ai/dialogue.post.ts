@@ -9,7 +9,7 @@ const textGenerationSchema = z.object({
     '至少需要一条用户消息'
   ),
   temperature: z.number().min(0).max(2).optional().default(0.7),
-  maxTokens: z.number().min(1).max(4000).optional().default(1000),
+  maxTokens: z.number().min(1).max(10000).optional().default(8000),
   model: z.enum(['deepseek-chat', 'deepseek-reasoner']).optional().default('deepseek-chat'),
   system: z.string().max(1000, '系统提示词长度不能超过1000个字符').optional().default(systemPrompt)
 })
