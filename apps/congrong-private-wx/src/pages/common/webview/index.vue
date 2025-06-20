@@ -12,7 +12,7 @@ onLoad((options) => {
   }
   else {
     // 如果没有传递url参数，使用默认值
-    url.value = 'https://uniapp.dcloud.io/static/web-view.html'
+    url.value = 'https://sciai.metaobe.com:9443/chat'
   }
 })
 </script>
