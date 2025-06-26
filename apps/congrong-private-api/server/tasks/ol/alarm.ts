@@ -156,7 +156,8 @@ export default defineTask({
 
       // 如果所有请求都失败
       if (successful.length === 0) {
-        throw new Error(`所有交易对数据获取失败 ${JSON.stringify(results)}`)
+        // 403 是美国ip受限
+        // throw new Error(`所有交易对数据获取失败 ${JSON.stringify(results)}`)
       }
 
       // 构建消息
