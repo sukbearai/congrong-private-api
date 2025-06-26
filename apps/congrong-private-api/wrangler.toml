@@ -33,3 +33,6 @@ bucket_name = 'congrong-private'
 
 [ai]
 binding = "AI"
+
+[triggers]
+crons = ["* * * * *"]
