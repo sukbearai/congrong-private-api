@@ -21,16 +21,14 @@ export default defineEventHandler(async (event) => {
     // 验证参数
     const schema = z.object({
       category: z.enum(['linear', 'inverse'], {
-        required_error: '缺少必要参数 category',
         invalid_type_error: 'category 必须是 linear 或 inverse',
-      }),
+      }).default('linear'),
       symbol: z.string({
         required_error: '缺少必要参数 symbol',
       }),
       intervalTime: z.enum(['5min', '15min', '30min', '1h', '4h', '1d'], {
-        required_error: '缺少必要参数 intervalTime',
         invalid_type_error: 'intervalTime 必须是 5min, 15min, 30min, 1h, 4h, 1d 中的一个',
-      }),
+      }).default('5min'),
       startTime: z.string().optional().transform(val => val ? parseInt(val) : undefined),
       endTime: z.string().optional().transform(val => val ? parseInt(val) : undefined),
       limit: z.string().optional().transform(val => val ? parseInt(val) : 50),
@@ -91,11 +89,47 @@ export default defineEventHandler(async (event) => {
       throw new Error(`Bybit API 错误: ${apiResponse.retMsg}`)
     }
 
+    // 处理list中的时间戳
+    const processedList = apiResponse.result.list.map((item, index) => {
+      let changeRate = 0
+      let changeAmount = 0
+      let previousOpenInterest = 0
+
+      // 计算相对于前一个数据点的变化（注意：数据是按时间倒序排列的）
+      if (index < apiResponse.result.list.length - 1) {
+        const nextItem = apiResponse.result.list[index + 1] // 时间上的前一个数据点
+        const currentOI = parseFloat(item.openInterest)
+        previousOpenInterest = parseFloat(nextItem.openInterest)
+
+        changeAmount = currentOI - previousOpenInterest
+        changeRate = previousOpenInterest !== 0 ? (changeAmount / previousOpenInterest) * 100 : 0
+      }
+
+      return {
+        ...item,
+        timestamp: item.timestamp,
+        formattedTime: new Date(parseInt(item.timestamp)).toLocaleString('zh-CN', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        }),
+        timestampMs: parseInt(item.timestamp),
+        openInterestFloat: parseFloat(item.openInterest),
+        previousOpenInterest,
+        changeAmount: parseFloat(changeAmount.toFixed(8)),
+        changeRate: parseFloat(changeRate.toFixed(4)), // 百分比，保留4位小数
+        changeRateFormatted: `${changeRate >= 0 ? '+' : ''}${changeRate.toFixed(2)}%`
+      }
+    })
+
     // 返回成功响应
     return createSuccessResponse({
       category: apiResponse.result.category,
       symbol: apiResponse.result.symbol,
-      list: apiResponse.result.list,
+      list: processedList,
       nextPageCursor: apiResponse.result.nextPageCursor,
     }, '获取未平仓合约数量成功')
   }
