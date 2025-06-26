@@ -17,6 +17,7 @@ export default defineTask({
       const category = 'linear'
       const intervalTime = '5min'
       const limit = 2 // 获取2条数据用于计算变化
+      const openInterestThreshold = 5 // 持仓变化率阈值
 
       // 获取配置信息
       const config = useRuntimeConfig()
@@ -158,13 +159,38 @@ export default defineTask({
       if (successful.length === 0) {
         // 403 是美国ip受限
         // throw new Error(`所有交易对数据获取失败 ${JSON.stringify(results)}`)
+        return {
+          result: 'error'
+        }
+      }
+
+      if(failed.length > 0) {
+        // throw new Error(`数据获取失败: ${failed.map(f => `${f.symbol}(${f.error})`).join(', ')}`)
+        return {
+          result: 'error'
+        }
+      }
+
+      const filteredData = successful.filter(item => 
+        Math.abs(item?.latest?.changeRate) > openInterestThreshold
+      )
+
+      // 如果没有数据超过阈值，不发送消息
+      if (filteredData.length === 0) {
+        return { 
+          result: 'ok', 
+          processed: symbols.length,
+          successful: successful.length,
+          failed: failed.length,
+          message: '没有超过阈值的变化，未发送消息'
+        }
       }
 
       // 构建消息
       let message = `📊 未平仓合约监控报告\n⏰ ${new Date().toLocaleString('zh-CN')}\n\n`
       
       // 处理成功的数据
-      successful.forEach((item: ProcessedOpenInterestData) => {
+      filteredData.forEach((item: ProcessedOpenInterestData) => {
         const changeIcon = item.latest.changeRate > 0 ? '📈' : item.latest.changeRate < 0 ? '📉' : '➡️'
         
         message += `${changeIcon} ${item.symbol}\n`
@@ -172,15 +198,7 @@ export default defineTask({
         message += `   变化: ${item.latest.changeRateFormatted}\n`
         message += `   时间: ${item.latest.formattedTime}\n\n`
       })
-      
-      // 处理失败的数据
-      if (failed.length > 0) {
-        message += `❌ 获取失败的交易对:\n`
-        failed.forEach(error => {
-          message += `   ${error.symbol}: ${error.error}\n`
-        })
-        message += '\n'
-      }
+    
       
       // 发送消息到 Telegram
       await bot.api.sendMessage('-1002663808019', message)
@@ -193,16 +211,13 @@ export default defineTask({
       }
     }
     catch (error) {
-      console.error('定时任务执行失败:', error)
-      
-      // 发送错误消息
       try {
         await bot.api.sendMessage('-1002663808019', `❌ 未平仓合约监控任务失败\n⏰ ${new Date().toLocaleString('zh-CN')}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
       } catch (botError) {
         console.error('发送错误消息失败:', botError)
       }
       
-      return { result: 'error', message: error instanceof Error ? error.message : '任务执行失败' }
+      return { result: 'error' }
     }
   },
 })
