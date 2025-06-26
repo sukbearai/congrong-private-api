@@ -23,3 +23,40 @@ export interface BybitApiResponse {
   retExtInfo: object
   time: number
 }
+
+
+export interface OpenInterestLatestItem {
+  openInterest: string
+  timestamp: string
+  formattedTime: string
+  timestampMs: number
+  openInterestFloat: number
+  previousOpenInterest: number
+  changeAmount: number
+  changeRate: number
+  changeRateFormatted: string
+}
+
+export interface ProcessedOpenInterestData {
+  category: string
+  symbol: string
+  latest: OpenInterestLatestItem
+  nextPageCursor: string
+}
+
+export interface OpenInterestError {
+  symbol: string
+  error: string
+}
+
+export interface OpenInterestSummary {
+  total: number
+  successful: number
+  failed: number
+}
+
+export interface MultipleOpenInterestResponse {
+  list: ProcessedOpenInterestData[]
+  errors?: OpenInterestError[]
+  summary: OpenInterestSummary
+}
