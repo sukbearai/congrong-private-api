@@ -156,7 +156,7 @@ export default defineTask({
 
       // 如果所有请求都失败
       if (successful.length === 0) {
-        throw new Error('所有交易对数据获取失败')
+        throw new Error(`所有交易对数据获取失败 ${bybitApiUrl}`)
       }
 
       // 构建消息
