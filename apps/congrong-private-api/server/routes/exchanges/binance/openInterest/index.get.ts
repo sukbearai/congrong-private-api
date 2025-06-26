@@ -1,5 +1,4 @@
 import type { BinanceOpenInterest } from './types'
-import { z } from 'zod'
 
 /**
  * 获取币安未平仓合约数量
@@ -11,6 +10,7 @@ export default defineEventHandler(async (event) => {
   try {
     // 获取查询参数
     const query = getQuery(event)
+    const { binance} = useRuntimeConfig()
 
     // 验证参数
     const schema = z.object({
@@ -27,10 +27,7 @@ export default defineEventHandler(async (event) => {
     }
 
     const { symbol } = validationResult.data
-
-    // 获取配置信息
-    const config = useRuntimeConfig()
-    const binanceApiUrl = config.binance?.binanceApiUrl
+    const binanceApiUrl = binance?.binanceApiUrl
 
     // 构建请求URL
     const url = `${binanceApiUrl}/fapi/v1/openInterest?symbol=${symbol}`
@@ -42,6 +39,7 @@ export default defineEventHandler(async (event) => {
         'Content-Type': 'application/json',
       },
     })
+
 
     // 检查HTTP响应状态
     if (!response.ok) {

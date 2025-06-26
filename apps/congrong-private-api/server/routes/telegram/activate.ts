@@ -1,5 +1,6 @@
 export default eventHandler(async (event) => {
   const { telegram } = useRuntimeConfig()
+  // const { bot } = event.context
 
   try {
     // 获取主机信息

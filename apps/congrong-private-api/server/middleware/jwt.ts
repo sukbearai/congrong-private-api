@@ -14,6 +14,7 @@ export default defineEventHandler(async (event) => {
 
   // 不需要认证的API路径
   const publicPaths = [
+    '/',
     '/api/device',
     '/api/qrcode',
     '/api/thirdparty',
@@ -22,10 +23,12 @@ export default defineEventHandler(async (event) => {
     '/api/phone',
     '/api/wx-login',
     '/api/ai',
+    '/telegram',
+    '/exchanges'
   ]
 
   // 如果是公共路径或OPTIONS请求，跳过认证
-  if (publicPaths.some(path => event.path.startsWith(path)) || event.method === 'OPTIONS') {
+  if (publicPaths.some(path => event.path === path || (path !== '/' && event.path.startsWith(path))) || event.method === 'OPTIONS') {
     return
   }
 

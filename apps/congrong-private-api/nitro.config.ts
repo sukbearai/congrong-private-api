@@ -12,10 +12,16 @@ export default defineNitroConfig({
 
   scheduledTasks: {
     // Run `cms:update` task every minute
-    '* * * * *': ['open-interest:alarm'],
+    '* * * * *': ['ol:alarm'],
   },
 
   routeRules: {
+    '/api/ai/dialogue': {
+      cors: true,
+      headers: {
+        'access-control-allow-methods': 'POST, GET, OPTIONS',
+      },
+    },
     '/api/ai/**': {
       cors: true,
       headers: {
