@@ -89,7 +89,7 @@ export default defineTask({
             ...latestItem,
             timestamp: latestItem.timestamp,
             formattedTime: new Date(parseInt(latestItem.timestamp)).toLocaleString('zh-CN', {
-              year: 'numeric',
+              // year: 'numeric',
               month: '2-digit',
               day: '2-digit',
               hour: '2-digit',
