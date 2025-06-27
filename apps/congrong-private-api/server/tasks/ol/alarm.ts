@@ -13,7 +13,7 @@ export default defineTask({
   async run() {
     try {
       // 配置要监控的币种
-      const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT']
+      const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT','HUSDT']
       const category = 'linear'
       const intervalTime = '5min'
       const limit = 2 // 获取2条数据用于计算变化
@@ -113,52 +113,26 @@ export default defineTask({
         })
       }
 
-      // 获取所有symbols的数据
-      const results = await Promise.allSettled(
-        symbols.map(async (symbol) => {
-          try {
-            const data = await fetchSymbolData(symbol)
-            return {
-              success: true,
-              symbol,
-              data
-            }
-          } catch (error) {
-            return {
-              success: false,
-              symbol,
-              error: error instanceof Error ? error.message : '获取数据失败'
-            }
-          }
-        })
-      )
-
-      // 分离成功和失败的结果
+      // 获取所有symbols的数据 - 串行执行
       const successful: ProcessedOpenInterestData[] = []
       const failed: OpenInterestError[] = []
 
-      results.forEach((result) => {
-        if (result.status === 'fulfilled') {
-          if (result.value.success) {
-            successful.push(result.value.data)
-          } else {
-            failed.push({
-              symbol: result.value.symbol,
-              error: result.value.error
-            })
-          }
-        } else {
+      for (const symbol of symbols) {
+        try {
+          const data = await fetchSymbolData(symbol)
+          successful.push(data)
+        } catch (error) {
           failed.push({
-            symbol: 'unknown',
-            error: result.reason instanceof Error ? result.reason.message : '请求失败'
+            symbol,
+            error: error instanceof Error ? error.message : '获取数据失败'
           })
         }
-      })
+      }
 
       // 如果所有请求都失败
       if (successful.length === 0) {
         // 403 是美国ip受限
-        // throw new Error(`所有交易对数据获取失败 ${JSON.stringify(results)}`)
+        // throw new Error(`所有交易对数据获取失败`)
         return {
           result: 'error'
         }
