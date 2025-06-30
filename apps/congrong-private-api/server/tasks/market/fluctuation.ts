@@ -53,14 +53,14 @@ export default defineTask({
           displayName: 'BTC',
           priceChangeThreshold: 3.0,
           significantChangeThreshold: 10.0,
-          monitorPeriodMinutes: 5 // 监控5分钟内的价格变化
+          monitorPeriodMinutes: 30 // 监控30分钟内的价格变化
         },
         {
           symbol: 'HUSDT',
           displayName: 'H',
           priceChangeThreshold: 5.0,
           significantChangeThreshold: 30.0,
-          monitorPeriodMinutes: 10 // 监控10分钟内的价格变化
+          monitorPeriodMinutes: 30 // 监控30分钟内的价格变化
         },
         // {
         //   symbol: 'ETHUSDT',
