@@ -13,7 +13,7 @@ export default defineTask({
   async run() {
     try {
       // 配置要监控的币种
-      const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT','HUSDT']
+      const symbols = ['HUSDT','TRUMPUSDT','SAHARAUSDT']
       const category = 'linear'
       const intervalTime = '5min'
       const limit = 2 // 获取2条数据用于计算变化
