@@ -1,14 +1,3 @@
-// K线数据相关类型
-interface KlineItem {
-  startTime: string
-  openPrice: string
-  highPrice: string
-  lowPrice: string
-  closePrice: string
-  volume: string
-  turnover: string
-}
-
 interface KlineApiResponse {
   retCode: number
   retMsg: string
@@ -39,6 +28,7 @@ interface MonitorConfig {
   displayName: string
   priceChangeThreshold: number
   significantChangeThreshold: number
+  monitorPeriodMinutes?: number // 监控时间段（分钟），默认5分钟
 }
 
 interface MonitorResult {
@@ -61,41 +51,46 @@ export default defineTask({
         {
           symbol: 'BTCUSDT',
           displayName: 'BTC',
-          priceChangeThreshold: 3.0, // 3%
-          significantChangeThreshold: 10.0, // 10.0%
+          priceChangeThreshold: 3.0,
+          significantChangeThreshold: 10.0,
+          monitorPeriodMinutes: 5 // 监控5分钟内的价格变化
         },
         {
           symbol: 'HUSDT',
           displayName: 'H',
-          priceChangeThreshold: 5.0, // 5%
-          significantChangeThreshold: 30.0, // 10.0%
+          priceChangeThreshold: 5.0,
+          significantChangeThreshold: 30.0,
+          monitorPeriodMinutes: 10 // 监控10分钟内的价格变化
         },
         // {
         //   symbol: 'ETHUSDT',
         //   displayName: 'ETH',
-        //   priceChangeThreshold: 3.0, // 3%
-        //   significantChangeThreshold: 10.0, // 10.0%
-        //   altcoinsCategory: 'ETH生态山寨币'
+        //   priceChangeThreshold: 3.0,
+        //   significantChangeThreshold: 10.0,
+        //   monitorPeriodMinutes: 5
         // },
         // {
         //   symbol: 'SOLUSDT',
         //   displayName: 'SOL',
-        //   priceChangeThreshold: 3.0, // 3%
-        //   significantChangeThreshold: 10.0, // 10.0%
-        //   altcoinsCategory: 'SOL生态山寨币'
+        //   priceChangeThreshold: 3.0,
+        //   significantChangeThreshold: 10.0,
+        //   monitorPeriodMinutes: 5
         // },
         // {
         //   symbol: 'BNBUSDT',
         //   displayName: 'BNB',
-        //   priceChangeThreshold: 3.0, // 3%
-        //   significantChangeThreshold: 10.0, // 10.0%
-        //   altcoinsCategory: 'BSC生态山寨币'
+        //   priceChangeThreshold: 3.0,
+        //   significantChangeThreshold: 10.0,
+        //   monitorPeriodMinutes: 5
         // }
       ]
 
       const category = 'linear'
       const klineInterval = '1' // 1分钟K线
-      const klineLimit = 2 // 获取2条K线数据用于计算变化
+      
+      // 计算需要获取的K线数量（取最大监控时间段+1）
+      const maxMonitorPeriod = Math.max(...monitorConfigs.map(c => c.monitorPeriodMinutes || 5))
+      const klineLimit = maxMonitorPeriod + 1
 
       // 获取配置信息
       const config = useRuntimeConfig()
@@ -150,22 +145,40 @@ export default defineTask({
           // 获取最新K线数据
           const latestKline = apiResponse.result.list[0]
           const currentPrice = parseFloat(latestKline[4]) // closePrice
-          const highPrice = parseFloat(latestKline[2]) // highPrice
-          const lowPrice = parseFloat(latestKline[3]) // lowPrice
           const volume = parseFloat(latestKline[5]) // volume
           const turnover = parseFloat(latestKline[6]) // turnover
           const timestamp = parseInt(latestKline[0])
 
+          // 计算监控时间段内的价格变化
+          const monitorPeriod = monitorConfig.monitorPeriodMinutes || 5
           let previousPrice = currentPrice
           let changeAmount = 0
           let changeRate = 0
 
-          // 如果有前一根K线，计算变化率
-          if (apiResponse.result.list.length > 1) {
-            const previousKline = apiResponse.result.list[1]
-            previousPrice = parseFloat(previousKline[4])
-            changeAmount = currentPrice - previousPrice
-            changeRate = previousPrice !== 0 ? (changeAmount / previousPrice) * 100 : 0
+          // 获取监控时间段前的价格
+          if (apiResponse.result.list.length > monitorPeriod) {
+            const periodAgoKline = apiResponse.result.list[monitorPeriod]
+            previousPrice = parseFloat(periodAgoKline[4])
+          } else if (apiResponse.result.list.length > 1) {
+            // 如果K线数据不足监控时间段，则使用最早的K线
+            const earliestKline = apiResponse.result.list[apiResponse.result.list.length - 1]
+            previousPrice = parseFloat(earliestKline[4])
+          }
+
+          // 计算变化
+          changeAmount = currentPrice - previousPrice
+          changeRate = previousPrice !== 0 ? (changeAmount / previousPrice) * 100 : 0
+
+          // 计算监控时间段内的最高价和最低价
+          let periodHighPrice = currentPrice
+          let periodLowPrice = currentPrice
+          const periodKlines = apiResponse.result.list.slice(0, Math.min(monitorPeriod, apiResponse.result.list.length))
+          
+          for (const kline of periodKlines) {
+            const high = parseFloat(kline[2])
+            const low = parseFloat(kline[3])
+            periodHighPrice = Math.max(periodHighPrice, high)
+            periodLowPrice = Math.min(periodLowPrice, low)
           }
 
           return {
@@ -175,8 +188,8 @@ export default defineTask({
             changeAmount: parseFloat(changeAmount.toFixed(2)),
             changeRate: parseFloat(changeRate.toFixed(4)),
             changeRateFormatted: `${changeRate >= 0 ? '+' : ''}${changeRate.toFixed(2)}%`,
-            highPrice,
-            lowPrice,
+            highPrice: periodHighPrice, // 使用时间段内的最高价
+            lowPrice: periodLowPrice,   // 使用时间段内的最低价
             volume,
             turnover,
             timestamp,
@@ -207,6 +220,7 @@ export default defineTask({
             isSignificantChange
           })
         } catch (error) {
+          console.error(`获取 ${monitorConfig.symbol} 数据失败:`, error)
           monitorResults.push({
             symbol: monitorConfig.symbol,
             data: {} as CryptoPriceData,
@@ -223,6 +237,7 @@ export default defineTask({
 
       // 如果没有需要通知的变化
       if (notifyResults.length === 0) {
+        console.log('所有币种价格变化均不显著，未发送通知')
         return {
           result: 'ok',
           monitored: monitorConfigs.length,
@@ -233,6 +248,7 @@ export default defineTask({
             symbol: r.symbol,
             currentPrice: r.data.currentPrice || 0,
             changeRate: r.data.changeRate || 0,
+            monitorPeriod: monitorConfigs.find(c => c.symbol === r.symbol)?.monitorPeriodMinutes || 5,
             error: r.error
           }))
         }
@@ -250,19 +266,14 @@ export default defineTask({
           const data = result.data
           const alertIcon = data.changeRate > 0 ? '🚀🚀🚀' : '💥💥💥'
           const trendIcon = data.changeRate > 0 ? '📈' : '📉'
-          // const suggestion = data.changeRate > 0 
-          //   ? `🔥 ${config.displayName}强势突破，考虑做多${config.altcoinsCategory}！` 
-          //   : `⚠️ ${config.displayName}急速下跌，考虑做空${config.altcoinsCategory}！`
+          const monitorPeriod = config.monitorPeriodMinutes || 5
           
           message += `${alertIcon} ${config.displayName} 重大异动 ${alertIcon}\n`
           message += `${trendIcon} ${data.symbol}\n`
           message += `💰 当前价格: $${data.currentPrice.toLocaleString()}\n`
-          message += `📊 变化幅度: ${data.changeRateFormatted}\n`
-          message += `📈 最高价: $${data.highPrice.toLocaleString()}\n`
-          message += `📉 最低价: $${data.lowPrice.toLocaleString()}\n`
-          // message += `💹 成交量: ${data.volume.toLocaleString()}\n`
-          // message += `💵 成交额: $${(data.turnover / 1000000).toFixed(2)}M\n`
-          // message += `🎯 建议: ${suggestion}\n`
+          message += `📊 ${monitorPeriod}分钟变化: ${data.changeRateFormatted}\n`
+          message += `📈 ${monitorPeriod}分钟最高: $${data.highPrice.toLocaleString()}\n`
+          message += `📉 ${monitorPeriod}分钟最低: $${data.lowPrice.toLocaleString()}\n`
           message += `⏰ 时间: ${data.formattedTime}\n\n`
         }
       }
@@ -274,13 +285,11 @@ export default defineTask({
           const config = monitorConfigs.find(c => c.symbol === result.symbol)!
           const data = result.data
           const changeIcon = data.changeRate > 0 ? '📈' : '📉'
-          // const actionHint = data.changeRate > 0 ? '关注做多机会' : '关注做空机会'
+          const monitorPeriod = config.monitorPeriodMinutes || 5
           
           message += `${changeIcon} ${config.displayName} (${data.symbol})\n`
           message += `💰 价格: $${data.currentPrice.toLocaleString()}\n`
-          message += `📊 变化: ${data.changeRateFormatted}\n`
-          // message += `💹 成交量: ${data.volume.toLocaleString()}\n`
-          // message += `🎯 ${actionHint}${config.altcoinsCategory}\n`
+          message += `📊 ${monitorPeriod}分钟变化: ${data.changeRateFormatted}\n`
           message += `⏰ ${data.formattedTime}\n\n`
         }
       }
@@ -313,6 +322,7 @@ export default defineTask({
           changeAmount: r.data.changeAmount || 0,
           volume: r.data.volume || 0,
           turnover: r.data.turnover || 0,
+          monitorPeriod: monitorConfigs.find(c => c.symbol === r.symbol)?.monitorPeriodMinutes || 5,
           shouldNotify: r.shouldNotify,
           isSignificantChange: r.isSignificantChange,
           error: r.error
@@ -320,6 +330,7 @@ export default defineTask({
       }
 
     } catch (error) {
+      console.error('多币种价格监控任务失败:', error)
       try {
         await bot.api.sendMessage('-1002663808019', `❌ 多币种价格监控任务失败\n⏰ ${new Date().toLocaleString('zh-CN')}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
       } catch (botError) {
