@@ -237,7 +237,7 @@ export default defineTask({
 
       // 如果没有需要通知的变化
       if (notifyResults.length === 0) {
-        console.log('所有币种价格变化均不显著，未发送通知')
+        console.log(`所有币种价格变化均不显著，未发送通知 - ${new Date().toLocaleString('zh-CN')}`)
         return {
           result: 'ok',
           monitored: monitorConfigs.length,

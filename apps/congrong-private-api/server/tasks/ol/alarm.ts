@@ -151,6 +151,7 @@ export default defineTask({
 
       // 如果没有数据超过阈值，不发送消息
       if (filteredData.length === 0) {
+        console.log(`没有超过阈值的变化，未发送消息 - ${new Date().toLocaleString('zh-CN')}`)
         return { 
           result: 'ok', 
           processed: symbols.length,
