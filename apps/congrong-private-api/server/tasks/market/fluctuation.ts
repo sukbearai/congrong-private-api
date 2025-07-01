@@ -60,7 +60,7 @@ export default defineTask({
           displayName: 'H',
           priceChangeThreshold: 5.0,
           significantChangeThreshold: 30.0,
-          monitorPeriodMinutes: 30 // 监控45分钟内的价格变化
+          monitorPeriodMinutes: 30 // 监控30分钟内的价格变化
         },
         // {
         //   symbol: 'ETHUSDT',
