@@ -16,9 +16,16 @@ export default defineTask({
       const symbols = ['HUSDT','TRUMPUSDT','SAHARAUSDT']
       const category = 'linear'
       const intervalTime = '5min'
-      const limit = 2 // 获取2条数据用于计算变化
-      const openInterestThreshold = 5 // 持仓变化率阈值
-
+      
+      // 配置监控时间间隔（分钟）
+      const monitoringInterval = 15 // 可以设置为 5, 15, 30 等
+      // 持仓变化率阈值
+      const openInterestThreshold = 5
+      
+      // 根据监控间隔计算需要获取的数据条数
+      const intervalMinutes = parseInt(intervalTime.replace('min', ''))
+      const limit = Math.ceil(monitoringInterval / intervalMinutes) + 1 // +1 确保有足够数据
+    
       // 获取配置信息
       const config = useRuntimeConfig()
       const bybitApiUrl = config.bybit?.bybitApiUrl
@@ -64,22 +71,24 @@ export default defineTask({
             throw new Error(`Bybit API 错误: ${apiResponse.retMsg}`)
           }
 
-          // 处理数据 - 只返回最新数据
+          // 处理数据 - 计算指定时间间隔的变化
           if (!apiResponse.result.list || apiResponse.result.list.length === 0) {
             throw new Error('没有可用数据')
           }
 
-          // 只处理第一项（最新数据）
           const latestItem = apiResponse.result.list[0]
           let changeRate = 0
           let changeAmount = 0
           let previousOpenInterest = 0
 
-          // 如果有第二项数据，计算变化率
-          if (apiResponse.result.list.length > 1) {
-            const previousItem = apiResponse.result.list[1]
+          // 计算目标时间间隔前的数据索引
+          const targetIndex = Math.ceil(monitoringInterval / intervalMinutes)
+          
+          // 如果有足够的历史数据，计算变化率
+          if (apiResponse.result.list.length > targetIndex) {
+            const targetItem = apiResponse.result.list[targetIndex]
             const currentOI = parseFloat(latestItem.openInterest)
-            previousOpenInterest = parseFloat(previousItem.openInterest)
+            previousOpenInterest = parseFloat(targetItem.openInterest)
 
             changeAmount = currentOI - previousOpenInterest
             changeRate = previousOpenInterest !== 0 ? (changeAmount / previousOpenInterest) * 100 : 0
@@ -89,7 +98,6 @@ export default defineTask({
             ...latestItem,
             timestamp: latestItem.timestamp,
             formattedTime: new Date(parseInt(latestItem.timestamp)).toLocaleString('zh-CN', {
-              // year: 'numeric',
               month: '2-digit',
               day: '2-digit',
               hour: '2-digit',
@@ -162,7 +170,7 @@ export default defineTask({
       }
 
       // 构建消息
-      let message = `📊 未平仓合约监控报告\n⏰ ${new Date().toLocaleString('zh-CN')}\n\n`
+      let message = `📊 未平仓合约监控报告 (${monitoringInterval}分钟变化)\n⏰ ${new Date().toLocaleString('zh-CN')}\n\n`
       
       // 处理成功的数据
       filteredData.forEach((item: ProcessedOpenInterestData) => {
