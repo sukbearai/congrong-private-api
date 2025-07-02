@@ -39,6 +39,55 @@ interface MonitorResult {
   error?: string
 }
 
+// 定义历史记录接口
+interface FluctuationHistoryRecord {
+  symbol: string
+  timestamp: number
+  changeRate: number
+  notifiedAt: number
+}
+
+// 检查是否为重复通知 - 如果波动率变化在1%范围内则认为是重复
+function isDuplicateFluctuationAlert(
+  currentChangeRate: number,
+  symbol: string,
+  historyRecords: FluctuationHistoryRecord[]
+): boolean {
+  // 查找该币种最近的通知记录
+  const recentRecord = historyRecords
+    .filter(record => record.symbol === symbol)
+    .sort((a, b) => b.notifiedAt - a.notifiedAt)[0]
+  
+  if (!recentRecord) {
+    console.log(`${symbol}: 没有历史记录，不是重复`)
+    return false // 没有历史记录，不是重复
+  }
+  
+  // 检查方向是否相同
+  const currentDirection = currentChangeRate >= 0 ? 'up' : 'down'
+  const recentDirection = recentRecord.changeRate >= 0 ? 'up' : 'down'
+  
+  // 如果方向不同，不认为是重复
+  if (currentDirection !== recentDirection) {
+    console.log(`${symbol}: 方向不同 (${currentDirection} vs ${recentDirection})，不是重复`)
+    return false
+  }
+  
+  // 检查波动率变化是否在1%范围内
+  const rateChange = Math.abs(Math.abs(currentChangeRate) - Math.abs(recentRecord.changeRate))
+  const isDuplicate = rateChange <= 1.0
+  
+  console.log(`${symbol}: 当前${currentChangeRate.toFixed(2)}% vs 历史${recentRecord.changeRate.toFixed(2)}%, 差值${rateChange.toFixed(2)}%, 重复=${isDuplicate}`)
+  
+  return isDuplicate
+}
+
+// 清理过期的历史记录（保留最近2小时的记录）
+function cleanExpiredFluctuationRecords(records: FluctuationHistoryRecord[]): FluctuationHistoryRecord[] {
+  const twoHoursAgo = Date.now() - (2 * 60 * 60 * 1000)
+  return records.filter(record => record.notifiedAt > twoHoursAgo)
+}
+
 export default defineTask({
   meta: {
     name: 'market:fluctuation',
@@ -58,7 +107,7 @@ export default defineTask({
         {
           symbol: 'HUSDT',
           displayName: 'H',
-          priceChangeThreshold: 3.0,
+          priceChangeThreshold: 5.0,
           significantChangeThreshold: 10.0,
           monitorPeriodMinutes: 30 // 监控30分钟内的价格变化
         },
@@ -102,6 +151,24 @@ export default defineTask({
       // 获取配置信息
       const config = useRuntimeConfig()
       const bybitApiUrl = config.bybit?.bybitApiUrl
+
+      // 初始化存储
+      const storage = useStorage('db')
+      const historyKey = 'telegram:fluctuation_history'
+
+      // 获取历史记录
+      let historyRecords = (await storage.getItem(historyKey) || []) as FluctuationHistoryRecord[]
+      
+      // 添加调试日志
+      console.log(`=== 历史记录调试 ===`)
+      console.log(`获取到的历史记录数量: ${historyRecords.length}`)
+      if (historyRecords.length > 0) {
+        console.log(`最近的记录:`, historyRecords.slice(0, 3))
+      }
+      
+      // 清理过期记录
+      historyRecords = cleanExpiredFluctuationRecords(historyRecords)
+      console.log(`清理后的历史记录数量: ${historyRecords.length}`)
 
       // 创建请求队列
       const requestQueue = new RequestQueue({
@@ -220,6 +287,14 @@ export default defineTask({
           const shouldNotify = Math.abs(data.changeRate) > monitorConfig.priceChangeThreshold
           const isSignificantChange = Math.abs(data.changeRate) > monitorConfig.significantChangeThreshold
 
+          // 添加详细日志
+          console.log(`=== ${monitorConfig.symbol} 监控结果 ===`)
+          console.log(`变化率: ${data.changeRate.toFixed(4)}%`)
+          console.log(`绝对值: ${Math.abs(data.changeRate).toFixed(4)}%`)
+          console.log(`阈值: ${monitorConfig.priceChangeThreshold}%`)
+          console.log(`比较结果: ${Math.abs(data.changeRate).toFixed(4)} > ${monitorConfig.priceChangeThreshold} = ${shouldNotify}`)
+          console.log(`应该通知: ${shouldNotify}`)
+
           monitorResults.push({
             symbol: monitorConfig.symbol,
             data,
@@ -230,7 +305,20 @@ export default defineTask({
           console.error(`获取 ${monitorConfig.symbol} 数据失败:`, error)
           monitorResults.push({
             symbol: monitorConfig.symbol,
-            data: {} as CryptoPriceData,
+            data: {
+              symbol: '',
+              currentPrice: 0,
+              previousPrice: 0,
+              changeAmount: 0,
+              changeRate: 0,
+              changeRateFormatted: '0.00%',
+              highPrice: 0,
+              lowPrice: 0,
+              volume: 0,
+              turnover: 0,
+              formattedTime: '',
+              timestamp: 0
+            },
             shouldNotify: false,
             isSignificantChange: false,
             error: error instanceof Error ? error.message : '获取数据失败'
@@ -240,7 +328,20 @@ export default defineTask({
 
       // 筛选需要通知的币种
       const notifyResults = monitorResults.filter(result => result.shouldNotify && !result.error)
-      const significantResults = notifyResults.filter(result => result.isSignificantChange)
+      
+      console.log(`需要通知的币种数量: ${notifyResults.length}`)
+      notifyResults.forEach(result => {
+        console.log(`- ${result.symbol}: ${result.data.changeRate.toFixed(2)}%`)
+      })
+
+      // 过滤重复通知 - 检查波动率变化是否在1%范围内
+      const newAlerts = notifyResults.filter(result => {
+        const isDuplicate = isDuplicateFluctuationAlert(result.data.changeRate, result.symbol, historyRecords)
+        console.log(`=== ${result.symbol} 重复检测结果: ${!isDuplicate ? '通过' : '被过滤'} ===`)
+        return !isDuplicate
+      })
+
+      console.log(`经过重复过滤后的币种数量: ${newAlerts.length}`)
 
       // 如果没有需要通知的变化
       if (notifyResults.length === 0) {
@@ -255,11 +356,28 @@ export default defineTask({
             symbol: r.symbol,
             currentPrice: r.data.currentPrice || 0,
             changeRate: r.data.changeRate || 0,
-            monitorPeriod: monitorConfigs.find(c => c.symbol === r.symbol)?.monitorPeriodMinutes || 5,
+            threshold: monitorConfigs.find(c => c.symbol === r.symbol)?.priceChangeThreshold || 0,
+            shouldNotify: r.shouldNotify,
             error: r.error
           }))
         }
       }
+
+      // 如果没有新的警报数据，不发送消息
+      if (newAlerts.length === 0) {
+        console.log(`检测到重复波动数据，未发送消息 - ${new Date().toLocaleString('zh-CN')}`)
+        return { 
+          result: 'ok', 
+          monitored: monitorConfigs.length,
+          successful: monitorResults.filter(r => !r.error).length,
+          failed: monitorResults.filter(r => r.error).length,
+          filtered: notifyResults.length,
+          duplicates: notifyResults.length,
+          message: '检测到重复波动数据，未发送消息'
+        }
+      }
+
+      const significantResults = newAlerts.filter(result => result.isSignificantChange)
 
       // 构建消息
       let message = `📊 多币种价格波动监控\n⏰ ${new Date().toLocaleString('zh-CN')}\n\n`
@@ -286,7 +404,7 @@ export default defineTask({
       }
 
       // 一般变化通知
-      const normalResults = notifyResults.filter(result => !result.isSignificantChange)
+      const normalResults = newAlerts.filter(result => !result.isSignificantChange)
       if (normalResults.length > 0) {
         for (const result of normalResults) {
           const config = monitorConfigs.find(c => c.symbol === result.symbol)!
@@ -314,14 +432,35 @@ export default defineTask({
       // 发送消息到 Telegram
       await bot.api.sendMessage('-1002663808019', message)
 
+      // 记录新的通知历史
+      const newHistoryRecords: FluctuationHistoryRecord[] = newAlerts.map(result => ({
+        symbol: result.symbol,
+        timestamp: result.data.timestamp,
+        changeRate: result.data.changeRate,
+        notifiedAt: Date.now()
+      }))
+
+      // 更新历史记录
+      historyRecords.push(...newHistoryRecords)
+      
+      // 再次清理过期记录并保存
+      historyRecords = cleanExpiredFluctuationRecords(historyRecords)
+      await storage.setItem(historyKey, historyRecords)
+
+      console.log(`=== 任务完成 ===`)
+      console.log(`发送通知: ${newAlerts.length} 个币种`)
+      console.log(`历史记录总数: ${historyRecords.length}`)
+
       return {
         result: 'ok',
         monitored: monitorConfigs.length,
         successful: monitorResults.filter(r => !r.error).length,
         failed: monitorResults.filter(r => r.error).length,
-        notified: notifyResults.length,
+        notified: newAlerts.length,
+        duplicates: notifyResults.length - newAlerts.length,
         significantChanges: significantResults.length,
         normalChanges: normalResults.length,
+        historyRecords: historyRecords.length,
         details: monitorResults.map(r => ({
           symbol: r.symbol,
           currentPrice: r.data.currentPrice || 0,
