@@ -102,29 +102,7 @@ export default defineTask({
 
     try {
       // 多币种监控配置
-      const monitorConfigs: MonitorConfig[] = [
-        {
-          symbol: 'BTCUSDT',
-          displayName: 'BTC',
-          priceChangeThreshold: 3.0,
-          significantChangeThreshold: 10.0,
-          monitorPeriodMinutes: 30 // 监控30分钟内的价格变化
-        },
-        {
-          symbol: 'HUSDT',
-          displayName: 'H',
-          priceChangeThreshold: 5.0,
-          significantChangeThreshold: 10.0,
-          monitorPeriodMinutes: 30 // 监控30分钟内的价格变化
-        },
-        {
-          symbol: 'TRUMPUSDT',
-          displayName: 'TRUMP',
-          priceChangeThreshold: 3.0,
-          significantChangeThreshold: 10.0,
-          monitorPeriodMinutes: 30 // 监控30分钟内的价格变化
-        },
-      ]
+       const monitorConfigs = (await useStorage('db').getItem('telegram:fluctuation') || []) as MonitorConfig[]
 
       // 监控配置日志
       console.log(`📊 监控配置:`)

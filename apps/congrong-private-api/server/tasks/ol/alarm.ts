@@ -66,7 +66,7 @@ export default defineTask({
   async run() {
     try {
       // 配置要监控的币种
-      const symbols = ['HUSDT','TRUMPUSDT']
+      const symbols = (await useStorage('db').getItem('telegram:ol') || []) as []
       const category = 'linear'
       const intervalTime = '5min'
       
