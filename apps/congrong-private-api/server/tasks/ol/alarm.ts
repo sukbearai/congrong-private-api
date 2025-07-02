@@ -5,6 +5,48 @@ import type {
   OpenInterestError 
 } from '../../routes/exchanges/bybit/openInterest/types'
 
+// 定义历史记录接口
+interface AlarmHistoryRecord {
+  symbol: string
+  timestamp: number
+  openInterest: number
+  changeRate: number
+  notifiedAt: number
+}
+
+// 生成数据指纹，用于判断数据重复性
+function generateDataFingerprint(symbol: string, timestamp: number, openInterest: number): string {
+  return `${symbol}_${timestamp}_${Math.floor(openInterest)}`
+}
+
+// 检查是否为重复数据
+function isDuplicateAlert(
+  currentData: ProcessedOpenInterestData,
+  historyRecords: AlarmHistoryRecord[]
+): boolean {
+  const currentFingerprint = generateDataFingerprint(
+    currentData.symbol,
+    currentData.latest.timestampMs,
+    currentData.latest.openInterestFloat
+  )
+  
+  // 检查历史记录中是否有相同的数据指纹
+  return historyRecords.some(record => {
+    const historyFingerprint = generateDataFingerprint(
+      record.symbol,
+      record.timestamp,
+      record.openInterest
+    )
+    return historyFingerprint === currentFingerprint
+  })
+}
+
+// 清理过期的历史记录（保留最近2小时的记录）
+function cleanExpiredRecords(records: AlarmHistoryRecord[]): AlarmHistoryRecord[] {
+  const twoHoursAgo = Date.now() - (2 * 60 * 60 * 1000)
+  return records.filter(record => record.notifiedAt > twoHoursAgo)
+}
+
 export default defineTask({
   meta: {
     name: 'ol:alarm',
@@ -13,7 +55,7 @@ export default defineTask({
   async run() {
     try {
       // 配置要监控的币种
-      const symbols = ['HUSDT','TRUMPUSDT','SAHARAUSDT']
+      const symbols = ['HUSDT','TRUMPUSDT']
       const category = 'linear'
       const intervalTime = '5min'
       
@@ -29,6 +71,16 @@ export default defineTask({
       // 获取配置信息
       const config = useRuntimeConfig()
       const bybitApiUrl = config.bybit?.bybitApiUrl
+
+      // 初始化存储
+      const storage = useStorage('db')
+      const historyKey = 'telegram:ol_alarm_history'
+
+      // 获取历史记录
+      let historyRecords = (await storage.getItem(historyKey) || [] ) as AlarmHistoryRecord[]
+      
+      // 清理过期记录
+      historyRecords = cleanExpiredRecords(historyRecords)
 
       // 创建请求队列
       const requestQueue = new RequestQueue({
@@ -130,6 +182,7 @@ export default defineTask({
           const data = await fetchSymbolData(symbol)
           successful.push(data)
         } catch (error) {
+          console.error(`❌ ${symbol} 数据获取失败:`, error)
           failed.push({
             symbol,
             error: error instanceof Error ? error.message : '获取数据失败'
@@ -153,6 +206,7 @@ export default defineTask({
         }
       }
 
+      // 过滤超过阈值的数据
       const filteredData = successful.filter(item => 
         Math.abs(item?.latest?.changeRate) > openInterestThreshold
       )
@@ -169,11 +223,30 @@ export default defineTask({
         }
       }
 
+      // 检查重复数据，过滤掉已经通知过的数据
+      const newAlerts = filteredData.filter(item => 
+        !isDuplicateAlert(item, historyRecords)
+      )
+
+      // 如果没有新的警报数据，不发送消息
+      if (newAlerts.length === 0) {
+        console.log(`检测到重复OI数据，未发送消息 - ${new Date().toLocaleString('zh-CN')}`)
+        return { 
+          result: 'ok', 
+          processed: symbols.length,
+          successful: successful.length,
+          failed: failed.length,
+          filtered: filteredData.length,
+          duplicates: filteredData.length,
+          message: '检测到重复数据，未发送消息'
+        }
+      }
+
       // 构建消息
       let message = `📊 未平仓合约监控报告 (${monitoringInterval}分钟变化)\n⏰ ${new Date().toLocaleString('zh-CN')}\n\n`
       
-      // 处理成功的数据
-      filteredData.forEach((item: ProcessedOpenInterestData) => {
+      // 处理新的警报数据
+      newAlerts.forEach((item: ProcessedOpenInterestData) => {
         const changeIcon = item.latest.changeRate > 0 ? '📈' : item.latest.changeRate < 0 ? '📉' : '➡️'
         
         message += `${changeIcon} ${item.symbol}\n`
@@ -181,16 +254,35 @@ export default defineTask({
         message += `   变化: ${item.latest.changeRateFormatted}\n`
         message += `   时间: ${item.latest.formattedTime}\n\n`
       })
-    
       
       // 发送消息到 Telegram
       await bot.api.sendMessage('-1002663808019', message)
+      
+      // 记录新的通知历史
+      const newHistoryRecords: AlarmHistoryRecord[] = newAlerts.map(item => ({
+        symbol: item.symbol,
+        timestamp: item.latest.timestampMs,
+        openInterest: item.latest.openInterestFloat,
+        changeRate: item.latest.changeRate,
+        notifiedAt: item.latest.timestampMs
+      }))
+
+      // 更新历史记录
+      historyRecords.push(...newHistoryRecords)
+      
+      // 再次清理过期记录并保存
+      historyRecords = cleanExpiredRecords(historyRecords)
+      await storage.setItem(historyKey, historyRecords)
       
       return { 
         result: 'ok', 
         processed: symbols.length,
         successful: successful.length,
-        failed: failed.length
+        failed: failed.length,
+        filtered: filteredData.length,
+        newAlerts: newAlerts.length,
+        duplicates: filteredData.length - newAlerts.length,
+        historyRecords: historyRecords.length
       }
     }
     catch (error) {
