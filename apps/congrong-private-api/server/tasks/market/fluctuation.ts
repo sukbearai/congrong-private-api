@@ -94,6 +94,12 @@ export default defineTask({
     description: '多币种价格波动监控 - BTC/ETH/SOL等主流币种',
   },
   async run() {
+    const startTime = Date.now()
+    console.log(`========================================`)
+    console.log(`🚀 多币种价格波动监控任务开始`)
+    console.log(`📅 开始时间: ${new Date().toLocaleString('zh-CN')}`)
+    console.log(`========================================`)
+
     try {
       // 多币种监控配置
       const monitorConfigs: MonitorConfig[] = [
@@ -118,28 +124,16 @@ export default defineTask({
           significantChangeThreshold: 10.0,
           monitorPeriodMinutes: 30 // 监控30分钟内的价格变化
         },
-        // {
-        //   symbol: 'ETHUSDT',
-        //   displayName: 'ETH',
-        //   priceChangeThreshold: 3.0,
-        //   significantChangeThreshold: 10.0,
-        //   monitorPeriodMinutes: 5
-        // },
-        // {
-        //   symbol: 'SOLUSDT',
-        //   displayName: 'SOL',
-        //   priceChangeThreshold: 3.0,
-        //   significantChangeThreshold: 10.0,
-        //   monitorPeriodMinutes: 5
-        // },
-        // {
-        //   symbol: 'BNBUSDT',
-        //   displayName: 'BNB',
-        //   priceChangeThreshold: 3.0,
-        //   significantChangeThreshold: 10.0,
-        //   monitorPeriodMinutes: 5
-        // }
       ]
+
+      // 监控配置日志
+      console.log(`📊 监控配置:`)
+      monitorConfigs.forEach(config => {
+        console.log(`  - ${config.displayName} (${config.symbol}):`)
+        console.log(`    通知阈值: ${config.priceChangeThreshold}%`)
+        console.log(`    重大异动阈值: ${config.significantChangeThreshold}%`)
+        console.log(`    监控时间段: ${config.monitorPeriodMinutes}分钟`)
+      })
 
       const category = 'linear'
       const klineInterval = '1' // 1分钟K线
@@ -148,9 +142,12 @@ export default defineTask({
       const maxMonitorPeriod = Math.max(...monitorConfigs.map(c => c.monitorPeriodMinutes || 5))
       const klineLimit = maxMonitorPeriod + 1
 
+      console.log(`📈 K线配置: 间隔=${klineInterval}分钟, 数量=${klineLimit}条`)
+
       // 获取配置信息
       const config = useRuntimeConfig()
       const bybitApiUrl = config.bybit?.bybitApiUrl
+      console.log(`🔗 API地址: ${bybitApiUrl}`)
 
       // 初始化存储
       const storage = useStorage('db')
@@ -159,22 +156,28 @@ export default defineTask({
       // 获取历史记录
       let historyRecords = (await storage.getItem(historyKey) || []) as FluctuationHistoryRecord[]
       
-      // 添加调试日志
-      console.log(`=== 历史记录调试 ===`)
-      console.log(`获取到的历史记录数量: ${historyRecords.length}`)
+      // 历史记录调试日志
+      console.log(`📚 历史记录管理:`)
+      console.log(`  - 获取到的历史记录数量: ${historyRecords.length}`)
       if (historyRecords.length > 0) {
-        console.log(`最近的记录:`, historyRecords.slice(0, 3))
+        console.log(`  - 最近3条记录:`)
+        historyRecords.slice(0, 3).forEach((record, index) => {
+          console.log(`    ${index + 1}. ${record.symbol}: ${record.changeRate.toFixed(2)}% (${new Date(record.notifiedAt).toLocaleString('zh-CN')})`)
+        })
       }
       
       // 清理过期记录
+      const beforeCleanCount = historyRecords.length
       historyRecords = cleanExpiredFluctuationRecords(historyRecords)
-      console.log(`清理后的历史记录数量: ${historyRecords.length}`)
+      const afterCleanCount = historyRecords.length
+      console.log(`  - 清理过期记录: ${beforeCleanCount} -> ${afterCleanCount} (清理了${beforeCleanCount - afterCleanCount}条)`)
 
       // 创建请求队列
       const requestQueue = new RequestQueue({
         maxRandomDelay: 1000,
         minDelay: 500
       })
+      console.log(`⏳ 请求队列配置: 最小延迟500ms, 最大随机延迟1000ms`)
 
       // 获取单个币种K线数据的函数
       const fetchCryptoKlineData = async (monitorConfig: MonitorConfig): Promise<CryptoPriceData> => {
@@ -189,6 +192,7 @@ export default defineTask({
 
           // 构建请求URL
           const url = `${bybitApiUrl}/v5/market/kline?${params.toString()}`
+          console.log(`    🌐 请求URL: ${url}`)
 
           // 发送请求到Bybit API
           const response = await fetch(url, {
@@ -216,6 +220,8 @@ export default defineTask({
             throw new Error('没有可用的K线数据')
           }
 
+          console.log(`    📊 获取到 ${apiResponse.result.list.length} 条K线数据`)
+
           // 获取最新K线数据
           const latestKline = apiResponse.result.list[0]
           const currentPrice = parseFloat(latestKline[4]) // closePrice
@@ -233,15 +239,19 @@ export default defineTask({
           if (apiResponse.result.list.length > monitorPeriod) {
             const periodAgoKline = apiResponse.result.list[monitorPeriod]
             previousPrice = parseFloat(periodAgoKline[4])
+            console.log(`    ⏱️ 使用${monitorPeriod}分钟前的数据作为基准`)
           } else if (apiResponse.result.list.length > 1) {
             // 如果K线数据不足监控时间段，则使用最早的K线
             const earliestKline = apiResponse.result.list[apiResponse.result.list.length - 1]
             previousPrice = parseFloat(earliestKline[4])
+            console.log(`    ⚠️ 数据不足${monitorPeriod}分钟，使用最早的${apiResponse.result.list.length - 1}分钟前数据`)
           }
 
           // 计算变化
           changeAmount = currentPrice - previousPrice
           changeRate = previousPrice !== 0 ? (changeAmount / previousPrice) * 100 : 0
+
+          console.log(`    💹 价格计算: 当前$${currentPrice} vs 历史$${previousPrice} = ${changeRate.toFixed(4)}%`)
 
           // 计算监控时间段内的最高价和最低价
           let periodHighPrice = currentPrice
@@ -254,6 +264,8 @@ export default defineTask({
             periodHighPrice = Math.max(periodHighPrice, high)
             periodLowPrice = Math.min(periodLowPrice, low)
           }
+
+          console.log(`    📊 期间范围: 最高$${periodHighPrice}, 最低$${periodLowPrice}`)
 
           return {
             symbol: monitorConfig.symbol,
@@ -281,19 +293,37 @@ export default defineTask({
       // 获取所有币种的数据 - 串行执行避免API限制
       const monitorResults: MonitorResult[] = []
       
-      for (const monitorConfig of monitorConfigs) {
+      console.log(`\n🔄 开始获取${monitorConfigs.length}个币种的数据...`)
+      
+      for (const [index, monitorConfig] of monitorConfigs.entries()) {
+        console.log(`\n📊 [${index + 1}/${monitorConfigs.length}] 正在获取 ${monitorConfig.symbol} 数据...`)
+        
         try {
           const data = await fetchCryptoKlineData(monitorConfig)
           const shouldNotify = Math.abs(data.changeRate) > monitorConfig.priceChangeThreshold
           const isSignificantChange = Math.abs(data.changeRate) > monitorConfig.significantChangeThreshold
 
-          // 添加详细日志
-          console.log(`=== ${monitorConfig.symbol} 监控结果 ===`)
-          console.log(`变化率: ${data.changeRate.toFixed(4)}%`)
-          console.log(`绝对值: ${Math.abs(data.changeRate).toFixed(4)}%`)
-          console.log(`阈值: ${monitorConfig.priceChangeThreshold}%`)
-          console.log(`比较结果: ${Math.abs(data.changeRate).toFixed(4)} > ${monitorConfig.priceChangeThreshold} = ${shouldNotify}`)
-          console.log(`应该通知: ${shouldNotify}`)
+          // 详细的监控结果日志
+          console.log(`✅ ${monitorConfig.symbol} 数据获取成功:`)
+          console.log(`  - 当前价格: $${data.currentPrice.toLocaleString()}`)
+          console.log(`  - 历史价格: $${data.previousPrice.toLocaleString()}`)
+          console.log(`  - 变化金额: $${data.changeAmount.toLocaleString()}`)
+          console.log(`  - 变化率: ${data.changeRate.toFixed(4)}% (绝对值: ${Math.abs(data.changeRate).toFixed(4)}%)`)
+          console.log(`  - 格式化变化: ${data.changeRateFormatted}`)
+          console.log(`  - 最高价: $${data.highPrice.toLocaleString()}`)
+          console.log(`  - 最低价: $${data.lowPrice.toLocaleString()}`)
+          console.log(`  - 成交量: ${data.volume.toLocaleString()}`)
+          console.log(`  - 成交额: $${data.turnover.toLocaleString()}`)
+          console.log(`  - 时间: ${data.formattedTime}`)
+          
+          // 阈值判断日志
+          console.log(`  📏 阈值判断:`)
+          console.log(`    - 通知阈值: ${monitorConfig.priceChangeThreshold}%`)
+          console.log(`    - 重大异动阈值: ${monitorConfig.significantChangeThreshold}%`)
+          console.log(`    - 变化率绝对值: ${Math.abs(data.changeRate).toFixed(4)}%`)
+          console.log(`    - 超过通知阈值: ${Math.abs(data.changeRate).toFixed(4)} > ${monitorConfig.priceChangeThreshold} = ${shouldNotify}`)
+          console.log(`    - 重大异动: ${Math.abs(data.changeRate).toFixed(4)} > ${monitorConfig.significantChangeThreshold} = ${isSignificantChange}`)
+          console.log(`    - 最终结果: 应该通知=${shouldNotify}, 重大异动=${isSignificantChange}`)
 
           monitorResults.push({
             symbol: monitorConfig.symbol,
@@ -302,7 +332,10 @@ export default defineTask({
             isSignificantChange
           })
         } catch (error) {
-          console.error(`获取 ${monitorConfig.symbol} 数据失败:`, error)
+          console.error(`❌ ${monitorConfig.symbol} 数据获取失败:`, error)
+          console.error(`  - 错误类型: ${error instanceof Error ? error.constructor.name : 'Unknown'}`)
+          console.error(`  - 错误消息: ${error instanceof Error ? error.message : '获取数据失败'}`)
+          
           monitorResults.push({
             symbol: monitorConfig.symbol,
             data: {
@@ -326,32 +359,61 @@ export default defineTask({
         }
       }
 
+      // 数据获取结果汇总
+      const successfulResults = monitorResults.filter(r => !r.error)
+      const failedResults = monitorResults.filter(r => r.error)
+      
+      console.log(`\n📊 数据获取结果汇总:`)
+      console.log(`  ✅ 成功: ${successfulResults.length}/${monitorConfigs.length}`)
+      console.log(`  ❌ 失败: ${failedResults.length}/${monitorConfigs.length}`)
+      
+      if (failedResults.length > 0) {
+        console.log(`  失败的币种:`)
+        failedResults.forEach(result => {
+          console.log(`    - ${result.symbol}: ${result.error}`)
+        })
+      }
+
       // 筛选需要通知的币种
       const notifyResults = monitorResults.filter(result => result.shouldNotify && !result.error)
       
-      console.log(`需要通知的币种数量: ${notifyResults.length}`)
-      notifyResults.forEach(result => {
-        console.log(`- ${result.symbol}: ${result.data.changeRate.toFixed(2)}%`)
-      })
+      console.log(`\n🔔 通知筛选结果:`)
+      console.log(`  需要通知的币种数量: ${notifyResults.length}/${successfulResults.length}`)
+      if (notifyResults.length > 0) {
+        console.log(`  详细列表:`)
+        notifyResults.forEach(result => {
+          const icon = result.data.changeRate > 0 ? '📈' : '📉'
+          console.log(`    ${icon} ${result.symbol}: ${result.data.changeRate.toFixed(2)}%`)
+        })
+      }
 
-      // 过滤重复通知 - 检查波动率变化是否在1%范围内
+      // 过滤重复通知
+      console.log(`\n🔍 重复通知过滤:`)
       const newAlerts = notifyResults.filter(result => {
         const isDuplicate = isDuplicateFluctuationAlert(result.data.changeRate, result.symbol, historyRecords)
-        console.log(`=== ${result.symbol} 重复检测结果: ${!isDuplicate ? '通过' : '被过滤'} ===`)
+        const status = !isDuplicate ? '✅ 通过' : '🚫 被过滤'
+        console.log(`  ${result.symbol}: ${status}`)
         return !isDuplicate
       })
 
-      console.log(`经过重复过滤后的币种数量: ${newAlerts.length}`)
+      console.log(`  过滤结果: ${notifyResults.length} -> ${newAlerts.length} (过滤了${notifyResults.length - newAlerts.length}个重复)`)
 
       // 如果没有需要通知的变化
       if (notifyResults.length === 0) {
-        console.log(`所有币种价格变化均不显著，未发送通知 - ${new Date().toLocaleString('zh-CN')}`)
+        const executionTime = Date.now() - startTime
+        console.log(`\n📋 任务完成 - 无需通知:`)
+        console.log(`  - 原因: 所有币种价格变化均不显著`)
+        console.log(`  - 执行时间: ${executionTime}ms`)
+        console.log(`  - 完成时间: ${new Date().toLocaleString('zh-CN')}`)
+        console.log(`========================================`)
+        
         return {
           result: 'ok',
           monitored: monitorConfigs.length,
           successful: monitorResults.filter(r => !r.error).length,
           failed: monitorResults.filter(r => r.error).length,
           message: '所有币种价格变化均不显著，未发送通知',
+          executionTimeMs: executionTime,
           details: monitorResults.map(r => ({
             symbol: r.symbol,
             currentPrice: r.data.currentPrice || 0,
@@ -365,7 +427,15 @@ export default defineTask({
 
       // 如果没有新的警报数据，不发送消息
       if (newAlerts.length === 0) {
-        console.log(`检测到重复波动数据，未发送消息 - ${new Date().toLocaleString('zh-CN')}`)
+        const executionTime = Date.now() - startTime
+        console.log(`\n📋 任务完成 - 重复数据:`)
+        console.log(`  - 原因: 检测到重复波动数据`)
+        console.log(`  - 筛选出的通知: ${notifyResults.length}个`)
+        console.log(`  - 重复过滤: ${notifyResults.length}个`)
+        console.log(`  - 执行时间: ${executionTime}ms`)
+        console.log(`  - 完成时间: ${new Date().toLocaleString('zh-CN')}`)
+        console.log(`========================================`)
+        
         return { 
           result: 'ok', 
           monitored: monitorConfigs.length,
@@ -373,11 +443,34 @@ export default defineTask({
           failed: monitorResults.filter(r => r.error).length,
           filtered: notifyResults.length,
           duplicates: notifyResults.length,
+          executionTimeMs: executionTime,
           message: '检测到重复波动数据，未发送消息'
         }
       }
 
       const significantResults = newAlerts.filter(result => result.isSignificantChange)
+      const normalResults = newAlerts.filter(result => !result.isSignificantChange)
+
+      console.log(`\n🚨 最终通知分类:`)
+      console.log(`  - 重大异动: ${significantResults.length}个`)
+      console.log(`  - 一般变化: ${normalResults.length}个`)
+      console.log(`  - 总计发送: ${newAlerts.length}个`)
+
+      if (significantResults.length > 0) {
+        console.log(`  重大异动详情:`)
+        significantResults.forEach(result => {
+          const icon = result.data.changeRate > 0 ? '🚀' : '💥'
+          console.log(`    ${icon} ${result.symbol}: ${result.data.changeRate.toFixed(2)}%`)
+        })
+      }
+
+      if (normalResults.length > 0) {
+        console.log(`  一般变化详情:`)
+        normalResults.forEach(result => {
+          const icon = result.data.changeRate > 0 ? '📈' : '📉'
+          console.log(`    ${icon} ${result.symbol}: ${result.data.changeRate.toFixed(2)}%`)
+        })
+      }
 
       // 构建消息
       let message = `📊 多币种价格波动监控\n⏰ ${new Date().toLocaleString('zh-CN')}\n\n`
@@ -404,7 +497,6 @@ export default defineTask({
       }
 
       // 一般变化通知
-      const normalResults = newAlerts.filter(result => !result.isSignificantChange)
       if (normalResults.length > 0) {
         for (const result of normalResults) {
           const config = monitorConfigs.find(c => c.symbol === result.symbol)!
@@ -420,7 +512,6 @@ export default defineTask({
       }
 
       // 添加失败信息（如果有）
-      const failedResults = monitorResults.filter(r => r.error)
       if (failedResults.length > 0) {
         message += `⚠️ 获取失败的币种:\n`
         failedResults.forEach(result => {
@@ -429,8 +520,13 @@ export default defineTask({
         message += `\n`
       }
 
+      console.log(`\n📤 正在发送Telegram消息...`)
+      console.log(`  - 消息长度: ${message.length}字符`)
+      console.log(`  - 目标群组: -1002663808019`)
+      
       // 发送消息到 Telegram
       await bot.api.sendMessage('-1002663808019', message)
+      console.log(`✅ Telegram消息发送成功`)
 
       // 记录新的通知历史
       const newHistoryRecords: FluctuationHistoryRecord[] = newAlerts.map(result => ({
@@ -440,16 +536,37 @@ export default defineTask({
         notifiedAt: Date.now()
       }))
 
+      console.log(`\n💾 更新历史记录:`)
+      console.log(`  - 新增记录: ${newHistoryRecords.length}条`)
+      
       // 更新历史记录
       historyRecords.push(...newHistoryRecords)
       
       // 再次清理过期记录并保存
+      const beforeFinalClean = historyRecords.length
       historyRecords = cleanExpiredFluctuationRecords(historyRecords)
+      const afterFinalClean = historyRecords.length
+      
       await storage.setItem(historyKey, historyRecords)
+      
+      console.log(`  - 清理前: ${beforeFinalClean}条`)
+      console.log(`  - 清理后: ${afterFinalClean}条`)
+      console.log(`  - 最终保存: ${historyRecords.length}条`)
 
-      console.log(`=== 任务完成 ===`)
-      console.log(`发送通知: ${newAlerts.length} 个币种`)
-      console.log(`历史记录总数: ${historyRecords.length}`)
+      const executionTime = Date.now() - startTime
+      
+      console.log(`\n🎉 任务成功完成:`)
+      console.log(`  - 监控币种: ${monitorConfigs.length}个`)
+      console.log(`  - 成功获取: ${successfulResults.length}个`)
+      console.log(`  - 获取失败: ${failedResults.length}个`)
+      console.log(`  - 发送通知: ${newAlerts.length}个`)
+      console.log(`  - 重复过滤: ${notifyResults.length - newAlerts.length}个`)
+      console.log(`  - 重大异动: ${significantResults.length}个`)
+      console.log(`  - 一般变化: ${normalResults.length}个`)
+      console.log(`  - 历史记录: ${historyRecords.length}条`)
+      console.log(`  - 执行时间: ${executionTime}ms`)
+      console.log(`  - 完成时间: ${new Date().toLocaleString('zh-CN')}`)
+      console.log(`========================================`)
 
       return {
         result: 'ok',
@@ -461,6 +578,7 @@ export default defineTask({
         significantChanges: significantResults.length,
         normalChanges: normalResults.length,
         historyRecords: historyRecords.length,
+        executionTimeMs: executionTime,
         details: monitorResults.map(r => ({
           symbol: r.symbol,
           currentPrice: r.data.currentPrice || 0,
@@ -476,16 +594,28 @@ export default defineTask({
       }
 
     } catch (error) {
-      console.error('多币种价格监控任务失败:', error)
+      const executionTime = Date.now() - startTime
+      
+      console.error(`\n💥 任务执行失败:`)
+      console.error(`  - 错误类型: ${error instanceof Error ? error.constructor.name : 'Unknown'}`)
+      console.error(`  - 错误消息: ${error instanceof Error ? error.message : '未知错误'}`)
+      console.error(`  - 执行时间: ${executionTime}ms`)
+      console.error(`  - 失败时间: ${new Date().toLocaleString('zh-CN')}`)
+      console.error(`  - 错误堆栈:`, error)
+      console.log(`========================================`)
+      
       try {
+        console.log(`📤 正在发送错误通知到Telegram...`)
         await bot.api.sendMessage('-1002663808019', `❌ 多币种价格监控任务失败\n⏰ ${new Date().toLocaleString('zh-CN')}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
+        console.log(`✅ 错误通知发送成功`)
       } catch (botError) {
-        console.error('发送错误消息失败:', botError)
+        console.error(`❌ 发送错误消息失败:`, botError)
       }
 
       return { 
         result: 'error',
-        error: error instanceof Error ? error.message : '未知错误'
+        error: error instanceof Error ? error.message : '未知错误',
+        executionTimeMs: executionTime
       }
     }
   },
