@@ -34,5 +34,5 @@ bucket_name = 'congrong-private'
 [ai]
 binding = "AI"
 
-[triggers]
-crons = ["* * * * *"]
+# [triggers]
+# crons = ["* * * * *"]
