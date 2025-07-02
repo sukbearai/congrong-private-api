@@ -58,8 +58,15 @@ export default defineTask({
         {
           symbol: 'HUSDT',
           displayName: 'H',
-          priceChangeThreshold: 5.0,
-          significantChangeThreshold: 30.0,
+          priceChangeThreshold: 3.0,
+          significantChangeThreshold: 10.0,
+          monitorPeriodMinutes: 30 // 监控30分钟内的价格变化
+        },
+        {
+          symbol: 'TRUMPUSDT',
+          displayName: 'TRUMP',
+          priceChangeThreshold: 3.0,
+          significantChangeThreshold: 10.0,
           monitorPeriodMinutes: 30 // 监控30分钟内的价格变化
         },
         // {
