@@ -210,13 +210,7 @@ export default defineTask({
             volume,
             turnover,
             timestamp,
-            formattedTime: new Date(timestamp).toLocaleString('zh-CN', {
-              month: '2-digit',
-              day: '2-digit',
-              hour: '2-digit',
-              minute: '2-digit',
-              second: '2-digit'
-            })
+            formattedTime: formatDateTime(timestamp)
           }
         })
       }
@@ -338,7 +332,7 @@ export default defineTask({
       console.log(`🚨 通知分类: 重大异动${significantResults.length}个, 一般变化${normalResults.length}个`)
 
       // 构建消息
-      let message = `📊 多币种价格波动监控\n⏰ ${new Date().toLocaleString('zh-CN')}\n\n`
+      let message = `📊 多币种价格波动监控\n⏰ ${formatCurrentTime()}\n\n`
 
       // 重大异动警报 - 优先显示
       if (significantResults.length > 0) {
@@ -443,7 +437,7 @@ export default defineTask({
       console.error(`💥 任务失败: ${error instanceof Error ? error.message : '未知错误'} (${executionTime}ms)`)
       
       try {
-        await bot.api.sendMessage('-1002663808019', `❌ 多币种价格监控任务失败\n⏰ ${new Date().toLocaleString('zh-CN')}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
+        await bot.api.sendMessage('-1002663808019', `❌ 多币种价格监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
       } catch (botError) {
         console.error(`❌ 发送错误消息失败:`, botError)
       }

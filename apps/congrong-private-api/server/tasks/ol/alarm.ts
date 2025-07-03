@@ -149,13 +149,7 @@ export default defineTask({
           const processedItem: OpenInterestLatestItem = {
             ...latestItem,
             timestamp: latestItem.timestamp,
-            formattedTime: new Date(parseInt(latestItem.timestamp)).toLocaleString('zh-CN', {
-              month: '2-digit',
-              day: '2-digit',
-              hour: '2-digit',
-              minute: '2-digit',
-              second: '2-digit'
-            }),
+            formattedTime: formatDateTime(parseInt(latestItem.timestamp)),
             timestampMs: parseInt(latestItem.timestamp),
             openInterestFloat: parseFloat(latestItem.openInterest),
             previousOpenInterest,
@@ -268,7 +262,7 @@ export default defineTask({
       }
 
       // 构建消息
-      let message = `📊 未平仓合约监控报告 (${monitoringInterval}分钟变化)\n⏰ ${new Date().toLocaleString('zh-CN')}\n\n`
+      let message = `📊 未平仓合约监控报告 (${monitoringInterval}分钟变化)\n⏰ ${formatCurrentTime()}\n\n`
       
       // 处理新的警报数据
       newAlerts.forEach((item: ProcessedOpenInterestData) => {
@@ -324,7 +318,7 @@ export default defineTask({
       console.error(`💥 未平仓合约监控任务失败: ${error instanceof Error ? error.message : '未知错误'} (${executionTime}ms)`)
       
       try {
-        await bot.api.sendMessage('-1002663808019', `❌ 未平仓合约监控任务失败\n⏰ ${new Date().toLocaleString('zh-CN')}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
+        await bot.api.sendMessage('-1002663808019', `❌ 未平仓合约监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
       } catch (botError) {
         console.error('❌ 发送错误消息失败:', botError)
       }
