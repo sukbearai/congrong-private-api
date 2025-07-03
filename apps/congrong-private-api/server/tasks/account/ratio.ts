@@ -1,33 +1,54 @@
 import type { 
-  BybitApiResponse, 
-  ProcessedOpenInterestData, 
-  OpenInterestLatestItem,
   OpenInterestError 
 } from '../../routes/exchanges/bybit/openInterest/types'
 
+// 定义大户多空比值数据接口
+interface LongShortRatioItem {
+  symbol: string
+  longShortRatio: string
+  longAccount: string
+  shortAccount: string
+  timestamp: string
+  // 计算字段
+  timestampMs: number
+  formattedTime: string
+  longShortRatioFloat: number
+  longAccountFloat: number
+  shortAccountFloat: number
+  changeRate: number
+  previousRatio: number
+  changeAmount: number
+  changeRateFormatted: string
+}
+
+interface ProcessedLongShortRatioData {
+  symbol: string
+  latest: LongShortRatioItem
+}
+
 // 定义历史记录接口
-interface AlarmHistoryRecord {
+interface LongShortRatioHistoryRecord {
   symbol: string
   timestamp: number
-  openInterest: number
+  longShortRatio: number
   changeRate: number
   notifiedAt: number
 }
 
 // 生成数据指纹，用于判断数据重复性
-function generateDataFingerprint(symbol: string, timestamp: number, openInterest: number): string {
-  return `${symbol}_${timestamp}_${Math.floor(openInterest)}`
+function generateDataFingerprint(symbol: string, timestamp: number, ratio: number): string {
+  return `${symbol}_${timestamp}_${Math.floor(ratio * 10000)}`
 }
 
 // 检查是否为重复数据
 function isDuplicateAlert(
-  currentData: ProcessedOpenInterestData,
-  historyRecords: AlarmHistoryRecord[]
+  currentData: ProcessedLongShortRatioData,
+  historyRecords: LongShortRatioHistoryRecord[]
 ): boolean {
   const currentFingerprint = generateDataFingerprint(
     currentData.symbol,
     currentData.latest.timestampMs,
-    currentData.latest.openInterestFloat
+    currentData.latest.longShortRatioFloat
   )
   
   // 检查历史记录中是否有相同的数据指纹
@@ -35,7 +56,7 @@ function isDuplicateAlert(
     const historyFingerprint = generateDataFingerprint(
       record.symbol,
       record.timestamp,
-      record.openInterest
+      record.longShortRatio
     )
     return historyFingerprint === currentFingerprint
   })
@@ -44,43 +65,42 @@ function isDuplicateAlert(
 }
 
 // 清理过期的历史记录（保留最近2小时的记录）
-function cleanExpiredRecords(records: AlarmHistoryRecord[]): AlarmHistoryRecord[] {
+function cleanExpiredRecords(records: LongShortRatioHistoryRecord[]): LongShortRatioHistoryRecord[] {
   const twoHoursAgo = Date.now() - (2 * 60 * 60 * 1000)
   return records.filter(record => record.notifiedAt > twoHoursAgo)
 }
 
 export default defineTask({
   meta: {
-    name: 'ol:alarm',
-    description: '未平仓合约定时消息推送',
+    name: 'ol:longShortRatio',
+    description: '大户多空账户数比值定时消息推送',
   },
   async run() {
     const startTime = Date.now()
     
     try {
       // 配置要监控的币种
-      const symbols = (await useStorage('db').getItem('telegram:ol') || []) as []
-      const category = 'linear'
-      const intervalTime = '5min'
+      const symbols = (await useStorage('db').getItem('telegram:longShortRatio') || []) as string[]
+      const period = '5m' // 可选: "5m","15m","30m","1h","2h","4h","6h","12h","1d"
       
       // 配置监控时间间隔（分钟）
-      const monitoringInterval = 5 // 可以设置为 5, 15, 30 等
-      // 持仓变化率阈值
-      const openInterestThreshold = 5
+      const monitoringInterval = 5 // 可以设置为5, 10, 15, 30, 60 等
+      // 多空比变化率阈值
+      const ratioChangeThreshold = 0.5
       
       // 根据监控间隔计算需要获取的数据条数
-      const intervalMinutes = parseInt(intervalTime.replace('min', ''))
-      const limit = Math.ceil(monitoringInterval / intervalMinutes) + 1 // +1 确保有足够数据
+      const periodMinutes = period === '5m' ? 5 : period === '15m' ? 15 : period === '30m' ? 30 : 60
+      const limit = Math.ceil(monitoringInterval / periodMinutes) + 1 // +1 确保有足够数据
     
-      console.log(`🚀 未平仓合约监控任务开始 - 监控${symbols.length}个币种, 阈值${openInterestThreshold}%`)
+      console.log(`🚀 大户多空比监控任务开始 - 监控${symbols.length}个币种, 阈值${ratioChangeThreshold}%`)
 
       // 获取配置信息
       const config = useRuntimeConfig()
-      const bybitApiUrl = config.bybit?.bybitApiUrl
+      const binanceApiUrl = config.binance.binanceApiUrl // Binance Futures API
 
       // 初始化存储（但不立即获取历史记录）
       const storage = useStorage('db')
-      const historyKey = 'telegram:ol_alarm_history'
+      const historyKey = 'telegram:longShortRatio_alarm_history'
 
       // 创建请求队列
       const requestQueue = new RequestQueue({
@@ -89,20 +109,19 @@ export default defineTask({
       })
 
       // 创建获取单个symbol数据的函数
-      const fetchSymbolData = async (symbol: string): Promise<ProcessedOpenInterestData> => {
+      const fetchSymbolData = async (symbol: string): Promise<ProcessedLongShortRatioData> => {
         return await requestQueue.add(async () => {
           // 构建查询参数
           const params = new URLSearchParams({
-            category,
             symbol,
-            intervalTime,
+            period,
             limit: limit.toString(),
           })
 
           // 构建请求URL
-          const url = `${bybitApiUrl}/v5/market/open-interest?${params.toString()}`
+          const url = `${binanceApiUrl}/futures/data/topLongShortAccountRatio?${params.toString()}`
 
-          // 发送请求到Bybit API
+          // 发送请求到Binance API
           const response = await fetch(url, {
             method: 'GET',
             headers: {
@@ -116,66 +135,61 @@ export default defineTask({
           }
 
           // 解析响应数据
-          const apiResponse = await response.json() as BybitApiResponse
+          const apiResponse = await response.json() as LongShortRatioItem[]
 
-          // 检查API响应状态
-          if (apiResponse.retCode !== 0) {
-            throw new Error(`Bybit API 错误: ${apiResponse.retMsg}`)
-          }
-
-          // 处理数据 - 计算指定时间间隔的变化
-          if (!apiResponse.result.list || apiResponse.result.list.length === 0) {
+          // 检查API响应
+          if (!apiResponse || apiResponse.length === 0) {
             throw new Error('没有可用数据')
           }
 
-          const latestItem = apiResponse.result.list[0]
+          // 处理数据 - 计算指定时间间隔的变化
+          const latestItem = apiResponse[0]
           let changeRate = 0
           let changeAmount = 0
-          let previousOpenInterest = 0
+          let previousRatio = 0
 
           // 计算目标时间间隔前的数据索引
-          const targetIndex = Math.ceil(monitoringInterval / intervalMinutes)
+          const targetIndex = Math.ceil(monitoringInterval / periodMinutes)
           
           // 如果有足够的历史数据，计算变化率
-          if (apiResponse.result.list.length > targetIndex) {
-            const targetItem = apiResponse.result.list[targetIndex]
-            const currentOI = parseFloat(latestItem.openInterest)
-            previousOpenInterest = parseFloat(targetItem.openInterest)
+          if (apiResponse.length > targetIndex) {
+            const targetItem = apiResponse[targetIndex]
+            const currentRatio = parseFloat(latestItem.longShortRatio)
+            previousRatio = parseFloat(targetItem.longShortRatio)
 
-            changeAmount = currentOI - previousOpenInterest
-            changeRate = previousOpenInterest !== 0 ? (changeAmount / previousOpenInterest) * 100 : 0
+            changeAmount = currentRatio - previousRatio
+            changeRate = previousRatio !== 0 ? (changeAmount / previousRatio) * 100 : 0
           }
 
-          const processedItem: OpenInterestLatestItem = {
+          const processedItem: LongShortRatioItem = {
             ...latestItem,
-            timestamp: latestItem.timestamp,
-            formattedTime: formatDateTime(parseInt(latestItem.timestamp)),
             timestampMs: parseInt(latestItem.timestamp),
-            openInterestFloat: parseFloat(latestItem.openInterest),
-            previousOpenInterest,
-            changeAmount: parseFloat(changeAmount.toFixed(8)),
+            formattedTime: formatDateTime(parseInt(latestItem.timestamp)),
+            longShortRatioFloat: parseFloat(latestItem.longShortRatio),
+            longAccountFloat: parseFloat(latestItem.longAccount),
+            shortAccountFloat: parseFloat(latestItem.shortAccount),
+            previousRatio,
+            changeAmount: parseFloat(changeAmount.toFixed(4)),
             changeRate: parseFloat(changeRate.toFixed(4)),
             changeRateFormatted: `${changeRate >= 0 ? '+' : ''}${changeRate.toFixed(2)}%`
           }
 
           return {
-            category: apiResponse.result.category,
-            symbol: apiResponse.result.symbol,
+            symbol: latestItem.symbol,
             latest: processedItem,
-            nextPageCursor: apiResponse.result.nextPageCursor,
           }
         })
       }
 
       // 获取所有symbols的数据 - 串行执行
-      const successful: ProcessedOpenInterestData[] = []
+      const successful: ProcessedLongShortRatioData[] = []
       const failed: OpenInterestError[] = []
 
       for (const symbol of symbols) {
         try {
           const data = await fetchSymbolData(symbol)
           successful.push(data)
-          console.log(`✅ ${symbol}: ${data.latest.changeRateFormatted}`)
+          console.log(`✅ ${symbol}: 多空比${data.latest.longShortRatioFloat.toFixed(4)}, 变化${data.latest.changeRateFormatted}`)
         } catch (error) {
           console.error(`❌ ${symbol} 数据获取失败: ${error instanceof Error ? error.message : '获取数据失败'}`)
           failed.push({
@@ -208,7 +222,7 @@ export default defineTask({
 
       // 过滤超过阈值的数据
       const filteredData = successful.filter(item => {
-        const shouldNotify = Math.abs(item?.latest?.changeRate) > openInterestThreshold
+        const shouldNotify = Math.abs(item?.latest?.changeRate) > ratioChangeThreshold
         return shouldNotify
       })
 
@@ -230,7 +244,7 @@ export default defineTask({
 
       // 只有当有需要通知的变化时，才获取历史记录
       console.log(`📚 开始获取历史记录用于重复检测...`)
-      let historyRecords = (await storage.getItem(historyKey) || [] ) as AlarmHistoryRecord[]
+      let historyRecords = (await storage.getItem(historyKey) || [] ) as LongShortRatioHistoryRecord[]
       
       // 清理过期记录
       const beforeCleanCount = historyRecords.length
@@ -262,14 +276,16 @@ export default defineTask({
       }
 
       // 构建消息
-      let message = `📊 未平仓合约监控报告 (${monitoringInterval}分钟变化)\n⏰ ${formatCurrentTime()}\n\n`
+      let message = `📊 大户多空账户数比值监控报告 (${monitoringInterval}分钟变化)\n⏰ ${formatCurrentTime()}\n\n`
       
       // 处理新的警报数据
-      newAlerts.forEach((item: ProcessedOpenInterestData) => {
+      newAlerts.forEach((item: ProcessedLongShortRatioData) => {
         const changeIcon = item.latest.changeRate > 0 ? '📈' : item.latest.changeRate < 0 ? '📉' : '➡️'
         
         message += `${changeIcon} ${item.symbol}\n`
-        message += `   持仓: ${item.latest.openInterestFloat.toLocaleString()}\n`
+        message += `   多空比: ${item.latest.longShortRatioFloat.toFixed(4)}\n`
+        message += `   多仓比: ${(item.latest.longAccountFloat * 100).toFixed(2)}%\n`
+        message += `   空仓比: ${(item.latest.shortAccountFloat * 100).toFixed(2)}%\n`
         message += `   变化: ${item.latest.changeRateFormatted}\n`
         message += `   时间: ${item.latest.formattedTime}\n\n`
       })
@@ -281,10 +297,10 @@ export default defineTask({
       console.log(`✅ 消息发送成功`)
       
       // 记录新的通知历史
-      const newHistoryRecords: AlarmHistoryRecord[] = newAlerts.map(item => ({
+      const newHistoryRecords: LongShortRatioHistoryRecord[] = newAlerts.map(item => ({
         symbol: item.symbol,
         timestamp: item.latest.timestampMs,
-        openInterest: item.latest.openInterestFloat,
+        longShortRatio: item.latest.longShortRatioFloat,
         changeRate: item.latest.changeRate,
         notifiedAt: item.latest.timestampMs
       }))
@@ -315,10 +331,10 @@ export default defineTask({
     }
     catch (error) {
       const executionTime = Date.now() - startTime
-      console.error(`💥 未平仓合约监控任务失败: ${error instanceof Error ? error.message : '未知错误'} (${executionTime}ms)`)
+      console.error(`💥 大户多空比监控任务失败: ${error instanceof Error ? error.message : '未知错误'} (${executionTime}ms)`)
       
       try {
-        await bot.api.sendMessage('-1002663808019', `❌ 未平仓合约监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
+        await bot.api.sendMessage('-1002663808019', `❌ 大户多空比监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
       } catch (botError) {
         console.error('❌ 发送错误消息失败:', botError)
       }
