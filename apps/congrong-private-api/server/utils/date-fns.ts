@@ -1,4 +1,4 @@
-export { format } from 'date-fns'
+import { format } from 'date-fns'
 export { zhCN } from 'date-fns/locale'
 
 // 常用的时间格式化函数
