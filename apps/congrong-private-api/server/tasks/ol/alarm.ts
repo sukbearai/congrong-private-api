@@ -55,6 +55,8 @@ export default defineTask({
     description: '未平仓合约定时消息推送',
   },
   async run() {
+    const startTime = Date.now()
+    
     try {
       // 配置要监控的币种
       const symbols = (await useStorage('db').getItem('telegram:ol') || []) as []
@@ -76,17 +78,9 @@ export default defineTask({
       const config = useRuntimeConfig()
       const bybitApiUrl = config.bybit?.bybitApiUrl
 
-      // 初始化存储
+      // 初始化存储（但不立即获取历史记录）
       const storage = useStorage('db')
       const historyKey = 'telegram:ol_alarm_history'
-
-      // 获取历史记录
-      let historyRecords = (await storage.getItem(historyKey) || [] ) as AlarmHistoryRecord[]
-      
-      // 清理过期记录
-      const beforeCleanCount = historyRecords.length
-      historyRecords = cleanExpiredRecords(historyRecords)
-      console.log(`📚 历史记录清理: ${beforeCleanCount} -> ${historyRecords.length}`)
 
       // 创建请求队列
       const requestQueue = new RequestQueue({
@@ -201,16 +195,20 @@ export default defineTask({
 
       // 如果所有请求都失败
       if (successful.length === 0) {
-        console.log('所有数据获取失败，任务结束')
+        const executionTime = Date.now() - startTime
+        console.log(`所有数据获取失败，任务结束 (${executionTime}ms)`)
         return {
-          result: 'error'
+          result: 'error',
+          executionTimeMs: executionTime
         }
       }
 
       if(failed.length > 0) {
-        console.log('部分数据获取失败，任务结束')
+        const executionTime = Date.now() - startTime
+        console.log(`部分数据获取失败，任务结束 (${executionTime}ms)`)
         return {
-          result: 'error'
+          result: 'error',
+          executionTimeMs: executionTime
         }
       }
 
@@ -222,17 +220,28 @@ export default defineTask({
 
       console.log(`🔔 需要通知: ${filteredData.length}个币种`)
 
-      // 如果没有数据超过阈值，不发送消息
+      // 如果没有数据超过阈值，不发送消息，不需要获取历史记录
       if (filteredData.length === 0) {
-        console.log(`📋 任务完成 - 无需通知`)
+        const executionTime = Date.now() - startTime
+        console.log(`📋 任务完成 - 无需通知 (${executionTime}ms)`)
         return { 
           result: 'ok', 
           processed: symbols.length,
           successful: successful.length,
           failed: failed.length,
-          message: '没有超过阈值的变化，未发送消息'
+          message: '没有超过阈值的变化，未发送消息',
+          executionTimeMs: executionTime
         }
       }
+
+      // 只有当有需要通知的变化时，才获取历史记录
+      console.log(`📚 开始获取历史记录用于重复检测...`)
+      let historyRecords = (await storage.getItem(historyKey) || [] ) as AlarmHistoryRecord[]
+      
+      // 清理过期记录
+      const beforeCleanCount = historyRecords.length
+      historyRecords = cleanExpiredRecords(historyRecords)
+      console.log(`📚 历史记录清理: ${beforeCleanCount} -> ${historyRecords.length}`)
 
       // 检查重复数据，过滤掉已经通知过的数据
       const newAlerts = filteredData.filter(item => {
@@ -244,7 +253,8 @@ export default defineTask({
 
       // 如果没有新的警报数据，不发送消息
       if (newAlerts.length === 0) {
-        console.log(`📋 任务完成 - 重复数据过滤`)
+        const executionTime = Date.now() - startTime
+        console.log(`📋 任务完成 - 重复数据过滤 (${executionTime}ms)`)
         return { 
           result: 'ok', 
           processed: symbols.length,
@@ -252,7 +262,8 @@ export default defineTask({
           failed: failed.length,
           filtered: filteredData.length,
           duplicates: filteredData.length,
-          message: '检测到重复数据，未发送消息'
+          message: '检测到重复数据，未发送消息',
+          executionTimeMs: executionTime
         }
       }
 
@@ -293,7 +304,8 @@ export default defineTask({
 
       console.log(`💾 历史记录已更新: ${historyRecords.length}条`)
       
-      console.log(`🎉 任务完成: 监控${symbols.length}个, 通知${newAlerts.length}个`)
+      const executionTime = Date.now() - startTime
+      console.log(`🎉 任务完成: 监控${symbols.length}个, 通知${newAlerts.length}个, 用时${executionTime}ms`)
       
       return { 
         result: 'ok', 
@@ -303,18 +315,25 @@ export default defineTask({
         filtered: filteredData.length,
         newAlerts: newAlerts.length,
         duplicates: filteredData.length - newAlerts.length,
-        historyRecords: historyRecords.length
+        historyRecords: historyRecords.length,
+        executionTimeMs: executionTime
       }
     }
     catch (error) {
-      console.error(`💥 未平仓合约监控任务失败: ${error instanceof Error ? error.message : '未知错误'}`)
+      const executionTime = Date.now() - startTime
+      console.error(`💥 未平仓合约监控任务失败: ${error instanceof Error ? error.message : '未知错误'} (${executionTime}ms)`)
+      
       try {
         await bot.api.sendMessage('-1002663808019', `❌ 未平仓合约监控任务失败\n⏰ ${new Date().toLocaleString('zh-CN')}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
       } catch (botError) {
         console.error('❌ 发送错误消息失败:', botError)
       }
       
-      return { result: 'error' }
+      return { 
+        result: 'error',
+        error: error instanceof Error ? error.message : '未知错误',
+        executionTimeMs: executionTime
+      }
     }
   },
 })

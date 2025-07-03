@@ -109,17 +109,9 @@ export default defineTask({
       const config = useRuntimeConfig()
       const bybitApiUrl = config.bybit?.bybitApiUrl
 
-      // 初始化存储
+      // 初始化存储（但不立即获取历史记录）
       const storage = useStorage('db')
       const historyKey = 'telegram:fluctuation_history'
-
-      // 获取历史记录
-      let historyRecords = (await storage.getItem(historyKey) || []) as FluctuationHistoryRecord[]
-      
-      // 清理过期记录
-      const beforeCleanCount = historyRecords.length
-      historyRecords = cleanExpiredFluctuationRecords(historyRecords)
-      console.log(`📚 历史记录清理: ${beforeCleanCount} -> ${historyRecords.length}`)
 
       // 创建请求队列
       const requestQueue = new RequestQueue({
@@ -283,15 +275,7 @@ export default defineTask({
       
       console.log(`🔔 需要通知: ${notifyResults.length}个币种`)
 
-      // 过滤重复通知
-      const newAlerts = notifyResults.filter(result => {
-        const isDuplicate = isDuplicateFluctuationAlert(result.data.changeRate, result.symbol, historyRecords)
-        return !isDuplicate
-      })
-
-      console.log(`🔍 重复过滤: ${notifyResults.length} -> ${newAlerts.length}`)
-
-      // 如果没有需要通知的变化
+      // 如果没有需要通知的变化，直接返回，不需要获取历史记录
       if (notifyResults.length === 0) {
         const executionTime = Date.now() - startTime
         console.log(`📋 任务完成 - 无需通知 (${executionTime}ms)`)
@@ -313,6 +297,23 @@ export default defineTask({
           }))
         }
       }
+
+      // 只有当有需要通知的变化时，才获取历史记录
+      console.log(`📚 开始获取历史记录用于重复检测...`)
+      let historyRecords = (await storage.getItem(historyKey) || []) as FluctuationHistoryRecord[]
+      
+      // 清理过期记录
+      const beforeCleanCount = historyRecords.length
+      historyRecords = cleanExpiredFluctuationRecords(historyRecords)
+      console.log(`📚 历史记录清理: ${beforeCleanCount} -> ${historyRecords.length}`)
+
+      // 过滤重复通知
+      const newAlerts = notifyResults.filter(result => {
+        const isDuplicate = isDuplicateFluctuationAlert(result.data.changeRate, result.symbol, historyRecords)
+        return !isDuplicate
+      })
+
+      console.log(`🔍 重复过滤: ${notifyResults.length} -> ${newAlerts.length}`)
 
       // 如果没有新的警报数据，不发送消息
       if (newAlerts.length === 0) {
