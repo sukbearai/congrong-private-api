@@ -86,7 +86,7 @@ export default defineTask({
       // 配置监控时间间隔（分钟）
       const monitoringInterval = 5 // 可以设置为5, 10, 15, 30, 60 等
       // 多空比变化率阈值
-      const ratioChangeThreshold = 0.5
+      const ratioChangeThreshold = 5
       
       // 根据监控间隔计算需要获取的数据条数
       const periodMinutes = period === '5m' ? 5 : period === '15m' ? 15 : period === '30m' ? 30 : 60
@@ -280,13 +280,31 @@ export default defineTask({
       
       // 处理新的警报数据
       newAlerts.forEach((item: ProcessedLongShortRatioData) => {
-        const changeIcon = item.latest.changeRate > 0 ? '📈' : item.latest.changeRate < 0 ? '📉' : '➡️'
+        const changeRate = item.latest.changeRate
+        const changeIcon = changeRate > 0 ? '📈' : changeRate < 0 ? '📉' : '➡️'
+
+        // 判断是多仓增加还是空仓增加
+        const trendDescription = changeRate > 0 
+          ? '🟢 多仓占比增加' 
+          : changeRate < 0 
+            ? '🔴 空仓占比增加' 
+            : '🟡 持平'
         
-        message += `${changeIcon} ${item.symbol}\n`
+        message += `${changeIcon} ${item.symbol} - ${trendDescription}\n`
         message += `   多空比: ${item.latest.longShortRatioFloat.toFixed(4)}\n`
         message += `   多仓比: ${(item.latest.longAccountFloat * 100).toFixed(2)}%\n`
         message += `   空仓比: ${(item.latest.shortAccountFloat * 100).toFixed(2)}%\n`
-        message += `   变化: ${item.latest.changeRateFormatted}\n`
+        message += `   变化率: ${item.latest.changeRateFormatted}\n`
+        
+        // 添加更详细的变化说明
+        if (Math.abs(changeRate) > 0) {
+          const previousLongRatio = item.latest.previousRatio
+          const currentLongRatio = item.latest.longShortRatioFloat
+          const ratioChange = (currentLongRatio - previousLongRatio).toFixed(4)
+          
+          message += `   比值变化: ${previousLongRatio.toFixed(4)} → ${currentLongRatio.toFixed(4)} (${ratioChange >= '0' ? '+' : ''}${ratioChange})\n`
+        }
+        
         message += `   时间: ${item.latest.formattedTime}\n\n`
       })
       
