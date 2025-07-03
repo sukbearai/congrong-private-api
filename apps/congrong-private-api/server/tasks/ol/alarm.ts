@@ -30,10 +30,6 @@ function isDuplicateAlert(
     currentData.latest.openInterestFloat
   )
   
-  console.log(`=== ${currentData.symbol} 重复检测 ===`)
-  console.log(`当前指纹: ${currentFingerprint}`)
-  console.log(`历史记录数量: ${historyRecords.length}`)
-  
   // 检查历史记录中是否有相同的数据指纹
   const isDuplicate = historyRecords.some(record => {
     const historyFingerprint = generateDataFingerprint(
@@ -41,14 +37,9 @@ function isDuplicateAlert(
       record.timestamp,
       record.openInterest
     )
-    const match = historyFingerprint === currentFingerprint
-    if (match) {
-      console.log(`找到匹配的历史指纹: ${historyFingerprint}`)
-    }
-    return match
+    return historyFingerprint === currentFingerprint
   })
   
-  console.log(`${currentData.symbol}: 重复检测结果 = ${isDuplicate}`)
   return isDuplicate
 }
 
@@ -79,11 +70,7 @@ export default defineTask({
       const intervalMinutes = parseInt(intervalTime.replace('min', ''))
       const limit = Math.ceil(monitoringInterval / intervalMinutes) + 1 // +1 确保有足够数据
     
-      console.log(`=== OI监控任务开始 ===`)
-      console.log(`监控币种: ${symbols.join(', ')}`)
-      console.log(`监控间隔: ${monitoringInterval}分钟`)
-      console.log(`变化阈值: ${openInterestThreshold}%`)
-      console.log(`数据条数: ${limit}`)
+      console.log(`🚀 未平仓合约监控任务开始 - 监控${symbols.length}个币种, 阈值${openInterestThreshold}%`)
 
       // 获取配置信息
       const config = useRuntimeConfig()
@@ -96,16 +83,10 @@ export default defineTask({
       // 获取历史记录
       let historyRecords = (await storage.getItem(historyKey) || [] ) as AlarmHistoryRecord[]
       
-      // 添加调试日志
-      console.log(`=== 历史记录调试 ===`)
-      console.log(`获取到的历史记录数量: ${historyRecords.length}`)
-      if (historyRecords.length > 0) {
-        console.log(`最近的记录:`, historyRecords.slice(0, 3))
-      }
-      
       // 清理过期记录
+      const beforeCleanCount = historyRecords.length
       historyRecords = cleanExpiredRecords(historyRecords)
-      console.log(`清理后的历史记录数量: ${historyRecords.length}`)
+      console.log(`📚 历史记录清理: ${beforeCleanCount} -> ${historyRecords.length}`)
 
       // 创建请求队列
       const requestQueue = new RequestQueue({
@@ -116,8 +97,6 @@ export default defineTask({
       // 创建获取单个symbol数据的函数
       const fetchSymbolData = async (symbol: string): Promise<ProcessedOpenInterestData> => {
         return await requestQueue.add(async () => {
-          console.log(`开始获取 ${symbol} 数据...`)
-          
           // 构建查询参数
           const params = new URLSearchParams({
             category,
@@ -128,7 +107,6 @@ export default defineTask({
 
           // 构建请求URL
           const url = `${bybitApiUrl}/v5/market/open-interest?${params.toString()}`
-          console.log(`请求URL: ${url}`)
 
           // 发送请求到Bybit API
           const response = await fetch(url, {
@@ -156,8 +134,6 @@ export default defineTask({
             throw new Error('没有可用数据')
           }
 
-          console.log(`${symbol}: 获取到 ${apiResponse.result.list.length} 条数据`)
-
           const latestItem = apiResponse.result.list[0]
           let changeRate = 0
           let changeAmount = 0
@@ -165,8 +141,6 @@ export default defineTask({
 
           // 计算目标时间间隔前的数据索引
           const targetIndex = Math.ceil(monitoringInterval / intervalMinutes)
-          
-          console.log(`${symbol}: 目标索引 = ${targetIndex}`)
           
           // 如果有足够的历史数据，计算变化率
           if (apiResponse.result.list.length > targetIndex) {
@@ -176,11 +150,6 @@ export default defineTask({
 
             changeAmount = currentOI - previousOpenInterest
             changeRate = previousOpenInterest !== 0 ? (changeAmount / previousOpenInterest) * 100 : 0
-            
-            console.log(`${symbol}: 当前OI = ${currentOI}, 历史OI = ${previousOpenInterest}`)
-            console.log(`${symbol}: 变化量 = ${changeAmount}, 变化率 = ${changeRate.toFixed(4)}%`)
-          } else {
-            console.log(`${symbol}: 数据不足，无法计算变化率`)
           }
 
           const processedItem: OpenInterestLatestItem = {
@@ -201,8 +170,6 @@ export default defineTask({
             changeRateFormatted: `${changeRate >= 0 ? '+' : ''}${changeRate.toFixed(2)}%`
           }
 
-          console.log(`${symbol}: 处理完成，变化率 = ${processedItem.changeRate}%`)
-
           return {
             category: apiResponse.result.category,
             symbol: apiResponse.result.symbol,
@@ -220,9 +187,9 @@ export default defineTask({
         try {
           const data = await fetchSymbolData(symbol)
           successful.push(data)
-          console.log(`✅ ${symbol} 数据获取成功`)
+          console.log(`✅ ${symbol}: ${data.latest.changeRateFormatted}`)
         } catch (error) {
-          console.error(`❌ ${symbol} 数据获取失败:`, error)
+          console.error(`❌ ${symbol} 数据获取失败: ${error instanceof Error ? error.message : '获取数据失败'}`)
           failed.push({
             symbol,
             error: error instanceof Error ? error.message : '获取数据失败'
@@ -230,8 +197,7 @@ export default defineTask({
         }
       }
 
-      console.log(`=== 数据获取结果 ===`)
-      console.log(`成功: ${successful.length}, 失败: ${failed.length}`)
+      console.log(`📊 获取结果: 成功${successful.length}个, 失败${failed.length}个`)
 
       // 如果所有请求都失败
       if (successful.length === 0) {
@@ -251,23 +217,14 @@ export default defineTask({
       // 过滤超过阈值的数据
       const filteredData = successful.filter(item => {
         const shouldNotify = Math.abs(item?.latest?.changeRate) > openInterestThreshold
-        console.log(`=== ${item.symbol} 阈值检测 ===`)
-        console.log(`变化率: ${item.latest.changeRate.toFixed(4)}%`)
-        console.log(`绝对值: ${Math.abs(item.latest.changeRate).toFixed(4)}%`)
-        console.log(`阈值: ${openInterestThreshold}%`)
-        console.log(`比较结果: ${Math.abs(item.latest.changeRate).toFixed(4)} > ${openInterestThreshold} = ${shouldNotify}`)
-        console.log(`应该通知: ${shouldNotify}`)
         return shouldNotify
       })
 
-      console.log(`需要通知的币种数量: ${filteredData.length}`)
-      filteredData.forEach(item => {
-        console.log(`- ${item.symbol}: ${item.latest.changeRate.toFixed(2)}%`)
-      })
+      console.log(`🔔 需要通知: ${filteredData.length}个币种`)
 
       // 如果没有数据超过阈值，不发送消息
       if (filteredData.length === 0) {
-        console.log(`没有超过阈值的变化，未发送消息 - ${new Date().toLocaleString('zh-CN')}`)
+        console.log(`📋 任务完成 - 无需通知`)
         return { 
           result: 'ok', 
           processed: symbols.length,
@@ -280,15 +237,14 @@ export default defineTask({
       // 检查重复数据，过滤掉已经通知过的数据
       const newAlerts = filteredData.filter(item => {
         const isDuplicate = isDuplicateAlert(item, historyRecords)
-        console.log(`=== ${item.symbol} 重复检测结果: ${!isDuplicate ? '通过' : '被过滤'} ===`)
         return !isDuplicate
       })
 
-      console.log(`经过重复过滤后的币种数量: ${newAlerts.length}`)
+      console.log(`🔍 重复过滤: ${filteredData.length} -> ${newAlerts.length}`)
 
       // 如果没有新的警报数据，不发送消息
       if (newAlerts.length === 0) {
-        console.log(`检测到重复OI数据，未发送消息 - ${new Date().toLocaleString('zh-CN')}`)
+        console.log(`📋 任务完成 - 重复数据过滤`)
         return { 
           result: 'ok', 
           processed: symbols.length,
@@ -313,11 +269,11 @@ export default defineTask({
         message += `   时间: ${item.latest.formattedTime}\n\n`
       })
       
-      console.log(`准备发送消息到Telegram...`)
-      console.log(`消息内容:`, message)
+      console.log(`📤 发送Telegram消息 (${message.length}字符)`)
       
       // 发送消息到 Telegram
       await bot.api.sendMessage('-1002663808019', message)
+      console.log(`✅ 消息发送成功`)
       
       // 记录新的通知历史
       const newHistoryRecords: AlarmHistoryRecord[] = newAlerts.map(item => ({
@@ -335,9 +291,9 @@ export default defineTask({
       historyRecords = cleanExpiredRecords(historyRecords)
       await storage.setItem(historyKey, historyRecords)
 
-      console.log(`=== 任务完成 ===`)
-      console.log(`发送通知: ${newAlerts.length} 个币种`)
-      console.log(`历史记录总数: ${historyRecords.length}`)
+      console.log(`💾 历史记录已更新: ${historyRecords.length}条`)
+      
+      console.log(`🎉 任务完成: 监控${symbols.length}个, 通知${newAlerts.length}个`)
       
       return { 
         result: 'ok', 
@@ -351,11 +307,11 @@ export default defineTask({
       }
     }
     catch (error) {
-      console.error('未平仓合约监控任务失败:', error)
+      console.error(`💥 未平仓合约监控任务失败: ${error instanceof Error ? error.message : '未知错误'}`)
       try {
         await bot.api.sendMessage('-1002663808019', `❌ 未平仓合约监控任务失败\n⏰ ${new Date().toLocaleString('zh-CN')}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
       } catch (botError) {
-        console.error('发送错误消息失败:', botError)
+        console.error('❌ 发送错误消息失败:', botError)
       }
       
       return { result: 'error' }
