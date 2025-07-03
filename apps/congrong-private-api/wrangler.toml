@@ -36,3 +36,6 @@ binding = "AI"
 
 # [triggers]
 # crons = ["* * * * *"]
+
+[placement]
+mode = "smart"
