@@ -566,12 +566,11 @@ export default defineTask({
 
       // 最终保存数据到API
       try {
-        const res = await saveDataToAPI({
+        await saveDataToAPI({
           timeSeriesData,
           historyRecords,
           lastUpdated: Date.now()
         })
-        console.log(res,'数据保存成功')
       } catch (error) {
         console.error('❌ 最终保存数据到API失败:', error)
       }
