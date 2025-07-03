@@ -3,17 +3,9 @@ import type {
   OpenInterestError 
 } from '../../routes/exchanges/bybit/openInterest/types'
 
-// 定义 API 响应的通用类型
-interface ApiResponse<T = any> {
-  success: boolean
-  message: string
-  data?: T
-  code?: number
-}
-
 // 定义 JSON 存储 API 读取响应的类型
 interface JsonStorageReadResponse {
-  success: boolean
+  code: number
   message: string
   data?: {
     key: string
@@ -25,7 +17,7 @@ interface JsonStorageReadResponse {
 
 // 定义 JSON 存储 API 写入响应的类型
 interface JsonStorageWriteResponse {
-  success: boolean
+  code: number
   message: string
   data?: {
     key: string
@@ -100,6 +92,8 @@ interface ProcessedFundingRateData {
     minRate: number
     volatility: number
     recordCount: number
+    isDirectionChange: boolean
+    changeDirection: string
   }
 }
 
@@ -152,6 +146,10 @@ function analyzeTimeWindow(records: FundingRateTimeSeriesRecord[], windowMinutes
   const minRate = Math.min(...rates)
   const volatility = maxRate - minRate
   
+  // 🔥 新增：方向性分析
+  const isDirectionChange = (oldestRecord.fundingRate >= 0) !== (newestRecord.fundingRate >= 0)
+  const changeDirection = changeRate > 0 ? 'increase' : 'decrease'
+  
   return {
     windowMinutes,
     oldestRate: oldestRecord.fundingRate,
@@ -161,7 +159,9 @@ function analyzeTimeWindow(records: FundingRateTimeSeriesRecord[], windowMinutes
     maxRate,
     minRate,
     volatility,
-    recordCount: sortedRecords.length
+    recordCount: sortedRecords.length,
+    isDirectionChange,
+    changeDirection
   }
 }
 
@@ -216,7 +216,7 @@ async function loadDataFromAPI(): Promise<FundingRateDataFile> {
     
     const result = await response.json() as JsonStorageReadResponse
     
-    if (!result.success) {
+    if (result.code !== 0) {
       console.log('📁 数据文件不存在，返回空数据')
       return {
         timeSeriesData: [],
@@ -270,7 +270,7 @@ async function saveDataToAPI(data: FundingRateDataFile): Promise<void> {
     
     const result = await response.json() as JsonStorageWriteResponse
     
-    if (!result.success) {
+    if (result.code !== 0) {
       throw new Error(`API 错误: ${result.message}`)
     }
     
@@ -295,7 +295,7 @@ export default defineTask({
       const category = 'linear'
       
       // 配置监控参数
-      const windowMinutes = 15 // 时间窗口：5分钟或15分钟
+      const windowMinutes = 5 // 时间窗口：5分钟或15分钟
       const fundingRateThreshold = 0.005 // 0.5% 的资金费率变化阈值
       
       console.log(`🚀 资金费率监控任务开始 - 监控${symbols.length}个币种, 时间窗口${windowMinutes}分钟, 阈值${fundingRateThreshold * 100}%`)
@@ -435,15 +435,28 @@ export default defineTask({
         }
       }
 
-      // 过滤超过阈值的资金费率变化
+      // 🔥 更新过滤逻辑 - 考虑多种触发条件
       const filteredData = successful.filter(item => {
         if (!item.windowAnalysis) return false
         
-        // 比较时间窗口内的资金费率变化
-        const shouldNotify = Math.abs(item.windowAnalysis.changeRate) > fundingRateThreshold
+        const analysis = item.windowAnalysis
+        
+        // 多重判断条件
+        const absoluteChangeExceeds = Math.abs(analysis.changeRate) > fundingRateThreshold
+        const volatilityExceeds = analysis.volatility > (fundingRateThreshold * 1.5) // 波动性阈值
+        const hasDirectionChange = analysis.isDirectionChange && Math.abs(analysis.changeRate) > (fundingRateThreshold * 0.5)
+        
+        const shouldNotify = absoluteChangeExceeds || volatilityExceeds || hasDirectionChange
+        
         if (shouldNotify) {
-          console.log(`🔔 ${item.symbol} ${windowMinutes}分钟资金费率变化超过阈值: ${Math.abs(item.windowAnalysis.changeRate).toFixed(4)} > ${fundingRateThreshold}`)
+          const reasons = []
+          if (absoluteChangeExceeds) reasons.push(`绝对变化${Math.abs(analysis.changeRate).toFixed(4)}`)
+          if (volatilityExceeds) reasons.push(`高波动${analysis.volatility.toFixed(4)}`)
+          if (hasDirectionChange) reasons.push('正负转换')
+          
+          console.log(`🔔 ${item.symbol} 触发警报: ${reasons.join(', ')}`)
         }
+        
         return shouldNotify
       })
 
@@ -463,7 +476,7 @@ export default defineTask({
           lastUpdated: Date.now()
         })
       } catch (error) {
-        console.error('❌ 保存数据到API失败:', error)
+        // console.error('❌ 保存数据到API失败:', error)
       }
 
       // 如果没有资金费率变化超过阈值
@@ -504,22 +517,29 @@ export default defineTask({
         }
       }
 
-      // 构建消息
+      // 🔥 更新消息构建 - 添加新指标
       let message = `💰 资金费率监控报告 (${windowMinutes}分钟窗口)\n⏰ ${formatCurrentTime()}\n\n`
       
       newAlerts.forEach((item: ProcessedFundingRateData) => {
         if (!item.windowAnalysis) return
         
-        const changeIcon = item.windowAnalysis.changeRate > 0 ? '📈' : '📉'
+        const analysis = item.windowAnalysis
+        const changeIcon = analysis.changeRate > 0 ? '📈' : '📉'
         const fundingRateIcon = item.fundingRatePercent > 0 ? '🔴' : '🟢'
         
         message += `${changeIcon} ${item.symbol} ${fundingRateIcon}\n`
         message += `   当前费率: ${item.fundingRatePercent.toFixed(4)}%\n`
-        message += `   ${windowMinutes}分钟前: ${(item.windowAnalysis.oldestRate * 100).toFixed(4)}%\n`
-        message += `   变化: ${item.windowAnalysis.changeRate >= 0 ? '+' : ''}${(item.windowAnalysis.changeRate * 100).toFixed(4)}%\n`
-        message += `   最高/最低: ${(item.windowAnalysis.maxRate * 100).toFixed(4)}% / ${(item.windowAnalysis.minRate * 100).toFixed(4)}%\n`
-        message += `   波动性: ${(item.windowAnalysis.volatility * 100).toFixed(4)}%\n`
-        message += `   数据点: ${item.windowAnalysis.recordCount}个\n`
+        message += `   ${windowMinutes}分钟前: ${(analysis.oldestRate * 100).toFixed(4)}%\n`
+        message += `   变化: ${analysis.changeRate >= 0 ? '+' : ''}${(analysis.changeRate * 100).toFixed(4)}%\n`
+        
+        // 🔥 新增：方向性信息
+        if (analysis.isDirectionChange) {
+          message += `   ⚠️ 正负转换 (${analysis.oldestRate >= 0 ? '正→负' : '负→正'})\n`
+        }
+        
+        message += `   波动性: ${(analysis.volatility * 100).toFixed(4)}%\n`
+        message += `   最高/最低: ${(analysis.maxRate * 100).toFixed(4)}% / ${(analysis.minRate * 100).toFixed(4)}%\n`
+        message += `   数据点: ${analysis.recordCount}个\n`
         message += `   下次结算: ${item.formattedNextFundingTime}\n`
         message += `   价格: $${parseFloat(item.lastPrice).toLocaleString()}\n\n`
       })
@@ -546,13 +566,14 @@ export default defineTask({
 
       // 最终保存数据到API
       try {
-        await saveDataToAPI({
+        const res = await saveDataToAPI({
           timeSeriesData,
           historyRecords,
           lastUpdated: Date.now()
         })
+        console.log(res,'数据保存成功')
       } catch (error) {
-        console.error('❌ 最终保存数据到API失败:', error)
+        // console.error('❌ 最终保存数据到API失败:', error)
       }
 
       console.log(`💾 历史记录已更新: ${historyRecords.length}条`)
