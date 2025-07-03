@@ -96,7 +96,7 @@ export default defineTask({
     try {
       // 多币种监控配置
       const monitorConfigs = (await useStorage('db').getItem('telegram:fluctuation') || []) as MonitorConfig[]
-      console.log(`📊 监控${monitorConfigs.length}个币种`)
+      // console.log(`📊 监控${monitorConfigs.length}个币种`)
 
       const category = 'linear'
       const klineInterval = '1'
