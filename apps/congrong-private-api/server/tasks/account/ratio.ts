@@ -72,7 +72,7 @@ function cleanExpiredRecords(records: LongShortRatioHistoryRecord[]): LongShortR
 
 export default defineTask({
   meta: {
-    name: 'ol:longShortRatio',
+    name: 'account:ratio',
     description: '大户多空账户数比值定时消息推送',
   },
   async run() {
