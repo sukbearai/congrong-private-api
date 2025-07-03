@@ -1,15 +1,28 @@
 // 定义请求验证模式，更新字段定义
 const productUpdateSchema = z.object({
-  deviceIds: z.string().optional(), // 多个设备ID，如："sn1001,sn1002,sn1003"
-  constitutions: z.string().optional(), // 改为字符串形式的体质列表，如："阴虚,阳虚"
-  title: z.string().optional(),
-  content: z.string().optional(),
-  checkedImg: z.string().optional(),
-  uncheckedImg: z.string().optional(),
+  deviceIds: z.string({
+    required_error: '设备ID不能为空',
+  }), // 多个设备ID，如："sn1001,sn1002,sn1003"
+  constitutions: z.string({
+    required_error: '体质不能为空',
+  }), // 改为字符串形式的体质列表，如："阴虚,阳虚"
+  title: z.string({
+    required_error: '标题不能为空',
+  }),
+  content: z.string({
+    required_error: '内容不能为空',
+  }),
+  checkedImg: z.string({
+    required_error: '选中图片不能为空',
+  }),
+  uncheckedImg: z.string({
+    required_error: '未选中图片不能为空',
+  }),
 })
 
 /**
  * 更新设备产品信息API
+ * 创建新的产品信息记录
  * 使用: POST /api/device/product-update
  */
 export default defineEventHandler(async (event) => {
@@ -24,30 +37,39 @@ export default defineEventHandler(async (event) => {
     }
 
     const {
-      deviceIds = '',
-      constitutions = '',
-      title = '',
-      content = '',
-      checkedImg = '',
-      uncheckedImg = '',
-    } = validationResult.data
-
-    // 构建产品信息对象
-    const productInfo = {
+      deviceIds,
+      constitutions,
       title,
       content,
       checkedImg,
       uncheckedImg,
-      constitutions,
+    } = validationResult.data
+
+    // 插入新产品到数据库
+    const newProduct = await event.context.db
+      .insert(productsTable)
+      .values({
+        title,
+        content,
+        checkedImg,
+        uncheckedImg,
+        deviceIds,
+        constitutions,
+      })
+      .returning()
+
+    // 构建返回的产品信息对象
+    const productInfo = {
+      id: newProduct[0].id,
+      title,
+      content,
+      checkedImg,
+      uncheckedImg,
       deviceIds,
+      constitutions,
+      createdAt: newProduct[0].createdAt,
+      updatedAt: newProduct[0].updatedAt,
     }
-
-    // 使用存储服务
-    const storage = useStorage('db')
-
-    // 直接使用设备ID和体质组合生成存储键
-    const storageKey = `device:product:${deviceIds}:${constitutions}`
-    await storage.setItem(storageKey, productInfo)
 
     // 返回成功响应
     return createSuccessResponse(productInfo, '产品信息更新成功')

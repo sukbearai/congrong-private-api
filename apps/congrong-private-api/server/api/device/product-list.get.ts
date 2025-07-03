@@ -1,3 +1,5 @@
+import { like, or, sql, desc } from 'drizzle-orm'
+
 const productListSchema = z.object({
   deviceIds: z.string({
     required_error: '设备ID不能为空',
@@ -32,32 +34,48 @@ export default defineEventHandler(async (event) => {
       return createErrorResponse('每页数量必须在1-100之间', 400)
     }
 
-    // 使用存储服务
-    const storage = useStorage('db')
-
-    // 获取所有产品信息的键
-    let keys = await storage.getKeys('device:product:')
-
-    keys = keys.filter(key => key.includes(deviceIds))
-
-    // 计算总记录数
-    const total = keys.length
-
-    // 计算分页
-    const startIndex = (page - 1) * pageSize
-    const endIndex = Math.min(startIndex + pageSize, total)
-    const paginatedKeys = keys.slice(startIndex, endIndex)
-
-    // 获取分页后的产品信息
-    const productList = await Promise.all(
-      paginatedKeys.map(async (key) => {
-        const item = await storage.getItem(key)
-        return {
-          key,
-          ...(item as Record<string, any>),
-        }
-      }),
+    // 解析设备ID列表
+    const deviceIdArray = deviceIds.split(',').map(id => id.trim())
+    
+    // 构建查询条件 - 匹配任意一个设备ID
+    const deviceConditions = deviceIdArray.map(deviceId => 
+      or(
+        like(productsTable.deviceIds, `%${deviceId}%`),
+        like(productsTable.deviceIds, `${deviceId},%`),
+        like(productsTable.deviceIds, `%,${deviceId}%`),
+        like(productsTable.deviceIds, deviceId)
+      )
     )
+
+    const whereCondition = or(...deviceConditions)
+
+    // 查询产品总数
+    const totalCountResult = await event.context.db
+      .select({ count: sql<number>`count(*)` })
+      .from(productsTable)
+      .where(whereCondition)
+
+    const total = totalCountResult[0]?.count || 0
+
+    // 查询产品列表
+    const offset = (page - 1) * pageSize
+    const products = await event.context.db
+      .select({
+        id: productsTable.id,
+        title: productsTable.title,
+        content: productsTable.content,
+        checkedImg: productsTable.checkedImg,
+        uncheckedImg: productsTable.uncheckedImg,
+        deviceIds: productsTable.deviceIds,
+        constitutions: productsTable.constitutions,
+        createdAt: productsTable.createdAt,
+        updatedAt: productsTable.updatedAt,
+      })
+      .from(productsTable)
+      .where(whereCondition)
+      .orderBy(desc(productsTable.createdAt))
+      .limit(pageSize)
+      .offset(offset)
 
     // 构建分页信息
     const pagination = {
@@ -69,7 +87,7 @@ export default defineEventHandler(async (event) => {
 
     // 返回成功响应
     return createSuccessResponse({
-      list: productList,
+      list: products,
       pagination,
     }, '产品发布记录获取成功')
   }

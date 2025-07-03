@@ -1,3 +1,5 @@
+import { like, or } from 'drizzle-orm'
+
 // 定义请求验证模式，deviceId和physique为必填项
 const productQuerySchema = z.object({
   deviceId: z.string({
@@ -42,11 +44,18 @@ export default defineEventHandler(async (event) => {
       return createErrorResponse('体质不能为空', 400)
     }
 
-    // 使用存储服务
-    const storage = useStorage('db')
-
-    // 获取所有产品信息的键
-    const keys = await storage.getKeys(`device:product:`)
+    // 查询包含指定设备ID的产品
+    const products = await event.context.db
+      .select()
+      .from(productsTable)
+      .where(
+        or(
+          like(productsTable.deviceIds, `%${deviceId}%`),
+          like(productsTable.deviceIds, `${deviceId},%`),
+          like(productsTable.deviceIds, `%,${deviceId}%`),
+          like(productsTable.deviceIds, deviceId)
+        )
+      )
 
     // 将夹杂体质转换为逗号分隔的格式，便于匹配
     const physiqueArray = physique.split('夹').filter(p => p.trim())
@@ -54,18 +63,16 @@ export default defineEventHandler(async (event) => {
     let productInfo: ProductInfo | null = null
     let bestMatchScore = -1 // 用于跟踪最佳匹配的分数
 
-    // 遍历所有键，查找匹配的产品信息
-    for (const key of keys) {
-      const item = await storage.getItem(key) as ProductInfo | null
-
-      if (!item || !item.deviceIds || !item.constitutions) { continue }
+    // 遍历所有产品，查找匹配的产品信息
+    for (const product of products) {
+      if (!product.deviceIds || !product.constitutions) { continue }
 
       // 检查设备ID是否匹配
-      const storedDeviceIds = item.deviceIds.split(',')
+      const storedDeviceIds = product.deviceIds.split(',')
       if (!storedDeviceIds.includes(deviceId)) { continue }
 
       // 检查体质是否匹配
-      const storedConstitutions = item.constitutions.split(',')
+      const storedConstitutions = product.constitutions.split(',')
 
       // 情况1: 完全匹配 - 用户的所有体质都在存储的体质列表中
       const allPhysiqueMatched = physiqueArray.every(p =>
@@ -80,7 +87,14 @@ export default defineEventHandler(async (event) => {
         // 如果找到更好的匹配，更新产品信息
         if (matchScore > bestMatchScore) {
           bestMatchScore = matchScore
-          productInfo = item
+          productInfo = {
+            title: product.title,
+            content: product.content,
+            checkedImg: product.checkedImg,
+            uncheckedImg: product.uncheckedImg,
+            deviceIds: product.deviceIds,
+            constitutions: product.constitutions
+          }
         }
       }
       else {
@@ -91,7 +105,14 @@ export default defineEventHandler(async (event) => {
 
         // 如果没有找到完全匹配但有部分匹配，暂存结果
         if (bestMatchScore < 0 && anyPhysiqueMatched) {
-          productInfo = item
+          productInfo = {
+            title: product.title,
+            content: product.content,
+            checkedImg: product.checkedImg,
+            uncheckedImg: product.uncheckedImg,
+            deviceIds: product.deviceIds,
+            constitutions: product.constitutions
+          }
         }
       }
     }
@@ -102,12 +123,7 @@ export default defineEventHandler(async (event) => {
     }
 
     // 返回成功响应
-    return {
-      code: 200,
-      message: '产品信息获取成功',
-      data: productInfo,
-      timestamp: Date.now(),
-    }
+    return createSuccessResponse(productInfo, '产品信息获取成功')
   }
   catch (error) {
     return createErrorResponse(
