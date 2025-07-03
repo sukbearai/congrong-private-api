@@ -476,7 +476,7 @@ export default defineTask({
           lastUpdated: Date.now()
         })
       } catch (error) {
-        // console.error('❌ 保存数据到API失败:', error)
+        console.error('❌ 保存数据到API失败:', error)
       }
 
       // 如果没有资金费率变化超过阈值
@@ -573,7 +573,7 @@ export default defineTask({
         })
         console.log(res,'数据保存成功')
       } catch (error) {
-        // console.error('❌ 最终保存数据到API失败:', error)
+        console.error('❌ 最终保存数据到API失败:', error)
       }
 
       console.log(`💾 历史记录已更新: ${historyRecords.length}条`)
