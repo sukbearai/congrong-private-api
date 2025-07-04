@@ -21,6 +21,8 @@ interface CryptoPriceData {
   turnover: number
   formattedTime: string
   timestamp: number
+  averagePrice: number
+  averagePriceFormatted: string
 }
 
 interface MonitorConfig {
@@ -197,6 +199,19 @@ export default defineTask({
             periodLowPrice = Math.min(periodLowPrice, low)
           }
 
+          // 计算成交量加权平均价格 (VWAP)
+          let totalWeightedPrice = 0
+          let totalVolume = 0
+          
+          for (const kline of periodKlines) {
+            const closePrice = parseFloat(kline[4])
+            const klineVolume = parseFloat(kline[5])
+            totalWeightedPrice += closePrice * klineVolume
+            totalVolume += klineVolume
+          }
+          
+          const averagePrice = totalVolume > 0 ? totalWeightedPrice / totalVolume : currentPrice
+
           return {
             symbol: monitorConfig.symbol,
             currentPrice,
@@ -209,7 +224,9 @@ export default defineTask({
             volume,
             turnover,
             timestamp,
-            formattedTime: formatDateTime(timestamp)
+            formattedTime: formatDateTime(timestamp),
+            averagePrice: parseFloat(averagePrice.toFixed(2)),
+            averagePriceFormatted: `$${averagePrice.toLocaleString()}`
           }
         })
       }
@@ -248,7 +265,9 @@ export default defineTask({
               volume: 0,
               turnover: 0,
               formattedTime: '',
-              timestamp: 0
+              timestamp: 0,
+              averagePrice: 0,
+              averagePriceFormatted: '$0'
             },
             shouldNotify: false,
             isSignificantChange: false,
@@ -348,6 +367,7 @@ export default defineTask({
           message += `${trendIcon} ${data.symbol}\n`
           message += `💰 当前价格: $${data.currentPrice.toLocaleString()}\n`
           message += `📊 ${monitorPeriod}分钟变化: ${data.changeRateFormatted}\n`
+          message += `📊 ${monitorPeriod}分钟VWAP: ${data.averagePriceFormatted}\n`
           message += `📈 ${monitorPeriod}分钟最高: $${data.highPrice.toLocaleString()}\n`
           message += `📉 ${monitorPeriod}分钟最低: $${data.lowPrice.toLocaleString()}\n`
           message += `⏰ 时间: ${data.formattedTime}\n\n`
@@ -365,6 +385,7 @@ export default defineTask({
           message += `${changeIcon} ${config.displayName} (${data.symbol})\n`
           message += `💰 价格: $${data.currentPrice.toLocaleString()}\n`
           message += `📊 ${monitorPeriod}分钟变化: ${data.changeRateFormatted}\n`
+          message += `📊 ${monitorPeriod}分钟VWAP: ${data.averagePriceFormatted}\n`
           message += `⏰ ${data.formattedTime}\n\n`
         }
       }
@@ -402,7 +423,7 @@ export default defineTask({
       console.log(`💾 历史记录已更新: ${historyRecords.length}条`)
 
       const executionTime = Date.now() - startTime
-      
+
       console.log(`🎉 任务完成: 监控${monitorConfigs.length}个, 通知${newAlerts.length}个, 用时${executionTime}ms`)
 
       return {
@@ -423,6 +444,7 @@ export default defineTask({
           changeAmount: r.data.changeAmount || 0,
           volume: r.data.volume || 0,
           turnover: r.data.turnover || 0,
+          averagePrice: r.data.averagePrice || 0,
           monitorPeriod: monitorConfigs.find(c => c.symbol === r.symbol)?.monitorPeriodMinutes || 5,
           shouldNotify: r.shouldNotify,
           isSignificantChange: r.isSignificantChange,
