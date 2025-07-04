@@ -135,7 +135,10 @@ export default defineTask({
           }
 
           // 解析响应数据
-          const apiResponse = (await response.json() as LongShortRatioItem[]).reverse()
+          let apiResponse = (await response.json() as LongShortRatioItem[])
+          
+          // 反转数组，使最新数据在前
+          apiResponse = apiResponse.reverse()
 
           // 检查API响应
           if (!apiResponse || apiResponse.length === 0) {
