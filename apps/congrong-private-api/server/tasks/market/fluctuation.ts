@@ -366,6 +366,7 @@ export default defineTask({
           message += `${alertIcon} ${config.displayName} 重大异动 ${alertIcon}\n`
           message += `${trendIcon} ${data.symbol}\n`
           message += `💰 当前价格: $${data.currentPrice.toLocaleString()}\n`
+          message += `📊 ${monitorPeriod}分钟前价格: $${data.previousPrice.toLocaleString()}\n`
           message += `📊 ${monitorPeriod}分钟变化: ${data.changeRateFormatted}\n`
           message += `📊 ${monitorPeriod}分钟VWAP: ${data.averagePriceFormatted}\n`
           message += `📈 ${monitorPeriod}分钟最高: $${data.highPrice.toLocaleString()}\n`
@@ -384,6 +385,7 @@ export default defineTask({
           
           message += `${changeIcon} ${config.displayName} (${data.symbol})\n`
           message += `💰 价格: $${data.currentPrice.toLocaleString()}\n`
+          message += `📊 ${monitorPeriod}分钟前价格: $${data.previousPrice.toLocaleString()}\n`
           message += `📊 ${monitorPeriod}分钟变化: ${data.changeRateFormatted}\n`
           message += `📊 ${monitorPeriod}分钟VWAP: ${data.averagePriceFormatted}\n`
           message += `⏰ ${data.formattedTime}\n\n`
