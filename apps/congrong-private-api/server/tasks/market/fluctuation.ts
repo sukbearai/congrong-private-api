@@ -71,9 +71,9 @@ function isDuplicateFluctuationAlert(
     return false
   }
   
-  // 检查波动率变化是否在5%范围内
+  // 检查波动率变化是否在2%范围内
   const rateChange = Math.abs(Math.abs(currentChangeRate) - Math.abs(recentRecord.changeRate))
-  const isDuplicate = rateChange <= 5
+  const isDuplicate = rateChange <= 2
   
   return isDuplicate
 }
