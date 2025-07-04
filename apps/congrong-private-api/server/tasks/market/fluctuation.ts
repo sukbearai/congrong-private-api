@@ -91,12 +91,11 @@ export default defineTask({
   },
   async run() {
     const startTime = Date.now()
-    console.log(`🚀 多币种价格波动监控任务开始 - ${new Date().toLocaleString('zh-CN')}`)
 
     try {
       // 多币种监控配置
       const monitorConfigs = (await useStorage('db').getItem('telegram:fluctuation') || []) as MonitorConfig[]
-      // console.log(`📊 监控${monitorConfigs.length}个币种`)
+      console.log(`🚀 多币种价格波动监控任务开始 - 监控${monitorConfigs.length}个币种`)
 
       const category = 'linear'
       const klineInterval = '1'

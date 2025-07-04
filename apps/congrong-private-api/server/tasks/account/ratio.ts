@@ -1,5 +1,5 @@
-import type { 
-  OpenInterestError 
+import type {
+  OpenInterestError
 } from '../../routes/exchanges/bybit/openInterest/types'
 
 // 定义大户多空比值数据接口
@@ -50,7 +50,7 @@ function isDuplicateAlert(
     currentData.latest.timestampMs,
     currentData.latest.longShortRatioFloat
   )
-  
+
   // 检查历史记录中是否有相同的数据指纹
   const isDuplicate = historyRecords.some(record => {
     const historyFingerprint = generateDataFingerprint(
@@ -60,7 +60,7 @@ function isDuplicateAlert(
     )
     return historyFingerprint === currentFingerprint
   })
-  
+
   return isDuplicate
 }
 
@@ -77,21 +77,21 @@ export default defineTask({
   },
   async run() {
     const startTime = Date.now()
-    
+
     try {
       // 配置要监控的币种
       const symbols = (await useStorage('db').getItem('telegram:ol') || []) as string[]
       const period = '5m' // 可选: "5m","15m","30m","1h","2h","4h","6h","12h","1d"
-      
+
       // 配置监控时间间隔（分钟）
       const monitoringInterval = 15 // 可以设置为5, 15, 30, 60 等
       // 多空比变化率阈值
       const ratioChangeThreshold = 20
-      
+
       // 根据监控间隔计算需要获取的数据条数
       const periodMinutes = period === '5m' ? 5 : period === '15m' ? 15 : period === '30m' ? 30 : 60
       const limit = Math.ceil(monitoringInterval / periodMinutes) + 1 // +1 确保有足够数据
-    
+
       console.log(`🚀 大户多空比监控任务开始 - 监控${symbols.length}个币种, 阈值${ratioChangeThreshold}%`)
 
       // 获取配置信息
@@ -135,7 +135,7 @@ export default defineTask({
           }
 
           // 解析响应数据
-          const apiResponse = await response.json() as LongShortRatioItem[]
+          const apiResponse = (await response.json() as LongShortRatioItem[]).reverse()
 
           // 检查API响应
           if (!apiResponse || apiResponse.length === 0) {
@@ -150,7 +150,7 @@ export default defineTask({
 
           // 计算目标时间间隔前的数据索引
           const targetIndex = Math.ceil(monitoringInterval / periodMinutes)
-          
+
           // 如果有足够的历史数据，计算变化率
           if (apiResponse.length > targetIndex) {
             const targetItem = apiResponse[targetIndex]
@@ -211,7 +211,7 @@ export default defineTask({
         }
       }
 
-      if(failed.length > 0) {
+      if (failed.length > 0) {
         const executionTime = Date.now() - startTime
         console.log(`部分数据获取失败，任务结束 (${executionTime}ms)`)
         return {
@@ -232,8 +232,8 @@ export default defineTask({
       if (filteredData.length === 0) {
         const executionTime = Date.now() - startTime
         console.log(`📋 任务完成 - 无需通知 (${executionTime}ms)`)
-        return { 
-          result: 'ok', 
+        return {
+          result: 'ok',
           processed: symbols.length,
           successful: successful.length,
           failed: failed.length,
@@ -244,8 +244,8 @@ export default defineTask({
 
       // 只有当有需要通知的变化时，才获取历史记录
       console.log(`📚 开始获取历史记录用于重复检测...`)
-      let historyRecords = (await storage.getItem(historyKey) || [] ) as LongShortRatioHistoryRecord[]
-      
+      let historyRecords = (await storage.getItem(historyKey) || []) as LongShortRatioHistoryRecord[]
+
       // 清理过期记录
       const beforeCleanCount = historyRecords.length
       historyRecords = cleanExpiredRecords(historyRecords)
@@ -263,8 +263,8 @@ export default defineTask({
       if (newAlerts.length === 0) {
         const executionTime = Date.now() - startTime
         console.log(`📋 任务完成 - 重复数据过滤 (${executionTime}ms)`)
-        return { 
-          result: 'ok', 
+        return {
+          result: 'ok',
           processed: symbols.length,
           successful: successful.length,
           failed: failed.length,
@@ -277,43 +277,43 @@ export default defineTask({
 
       // 构建消息
       let message = `📊 大户多空账户数比值监控报告 (${monitoringInterval}分钟变化)\n⏰ ${formatCurrentTime()}\n\n`
-      
+
       // 处理新的警报数据
       newAlerts.forEach((item: ProcessedLongShortRatioData) => {
         const changeRate = item.latest.changeRate
         const changeIcon = changeRate > 0 ? '📈' : changeRate < 0 ? '📉' : '➡️'
 
         // 判断是多仓增加还是空仓增加
-        const trendDescription = changeRate > 0 
-          ? '🟢 多仓占比增加' 
-          : changeRate < 0 
-            ? '🔴 空仓占比增加' 
+        const trendDescription = changeRate > 0
+          ? '🟢 多仓占比增加'
+          : changeRate < 0
+            ? '🔴 空仓占比增加'
             : '🟡 持平'
-        
+
         message += `${changeIcon} ${item.symbol} - ${trendDescription}\n`
         message += `   多空比: ${item.latest.longShortRatioFloat.toFixed(4)}\n`
         message += `   多仓比: ${(item.latest.longAccountFloat * 100).toFixed(2)}%\n`
         message += `   空仓比: ${(item.latest.shortAccountFloat * 100).toFixed(2)}%\n`
         message += `   变化率: ${item.latest.changeRateFormatted}\n`
-        
+
         // 添加更详细的变化说明
         if (Math.abs(changeRate) > 0) {
           const previousLongRatio = item.latest.previousRatio
           const currentLongRatio = item.latest.longShortRatioFloat
           const ratioChange = (currentLongRatio - previousLongRatio).toFixed(4)
-          
+
           message += `   比值变化: ${previousLongRatio.toFixed(4)} → ${currentLongRatio.toFixed(4)} (${ratioChange >= '0' ? '+' : ''}${ratioChange})\n`
         }
-        
-        message += `   时间: ${item.latest.formattedTime}\n\n`
+
+        message += `   最新变化时间: ${item.latest.formattedTime}\n\n`
       })
-      
+
       console.log(`📤 发送Telegram消息 (${message.length}字符)`)
-      
+
       // 发送消息到 Telegram
       await bot.api.sendMessage('-1002663808019', message)
       console.log(`✅ 消息发送成功`)
-      
+
       // 记录新的通知历史
       const newHistoryRecords: LongShortRatioHistoryRecord[] = newAlerts.map(item => ({
         symbol: item.symbol,
@@ -325,18 +325,18 @@ export default defineTask({
 
       // 更新历史记录
       historyRecords.push(...newHistoryRecords)
-      
+
       // 再次清理过期记录并保存
       historyRecords = cleanExpiredRecords(historyRecords)
       await storage.setItem(historyKey, historyRecords)
 
       console.log(`💾 历史记录已更新: ${historyRecords.length}条`)
-      
+
       const executionTime = Date.now() - startTime
       console.log(`🎉 任务完成: 监控${symbols.length}个, 通知${newAlerts.length}个, 用时${executionTime}ms`)
-      
-      return { 
-        result: 'ok', 
+
+      return {
+        result: 'ok',
         processed: symbols.length,
         successful: successful.length,
         failed: failed.length,
@@ -350,14 +350,14 @@ export default defineTask({
     catch (error) {
       const executionTime = Date.now() - startTime
       console.error(`💥 大户多空比监控任务失败: ${error instanceof Error ? error.message : '未知错误'} (${executionTime}ms)`)
-      
+
       try {
         await bot.api.sendMessage('-1002663808019', `❌ 大户多空比监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
       } catch (botError) {
         console.error('❌ 发送错误消息失败:', botError)
       }
-      
-      return { 
+
+      return {
         result: 'error',
         error: error instanceof Error ? error.message : '未知错误',
         executionTimeMs: executionTime
