@@ -84,9 +84,9 @@ export default defineTask({
       const period = '5m' // 可选: "5m","15m","30m","1h","2h","4h","6h","12h","1d"
       
       // 配置监控时间间隔（分钟）
-      const monitoringInterval = 5 // 可以设置为5, 10, 15, 30, 60 等
+      const monitoringInterval = 15 // 可以设置为5, 15, 30, 60 等
       // 多空比变化率阈值
-      const ratioChangeThreshold = 5
+      const ratioChangeThreshold = 20
       
       // 根据监控间隔计算需要获取的数据条数
       const periodMinutes = period === '5m' ? 5 : period === '15m' ? 15 : period === '30m' ? 30 : 60

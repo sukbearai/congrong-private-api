@@ -64,7 +64,7 @@ export default defineTask({
       const intervalTime = '5min'
       
       // 配置监控时间间隔（分钟）
-      const monitoringInterval = 5 // 可以设置为 5, 15, 30 等
+      const monitoringInterval = 15 // 可以设置为 5, 15, 30 等
       // 持仓变化率阈值
       const openInterestThreshold = 5
       
