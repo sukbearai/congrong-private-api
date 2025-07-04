@@ -86,7 +86,7 @@ export default defineTask({
       // 配置监控时间间隔（分钟）
       const monitoringInterval = 15 // 可以设置为5, 15, 30, 60 等
       // 多空比变化率阈值
-      const ratioChangeThreshold = 20
+      const ratioChangeThreshold = 20 // 20% 的变化率阈值，比较合理
 
       // 根据监控间隔计算需要获取的数据条数
       const periodMinutes = period === '5m' ? 5 : period === '15m' ? 15 : period === '30m' ? 30 : 60
