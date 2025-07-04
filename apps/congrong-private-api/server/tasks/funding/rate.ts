@@ -92,8 +92,6 @@ interface ProcessedFundingRateData {
     minRate: number
     volatility: number
     recordCount: number
-    isDirectionChange: boolean
-    changeDirection: string
   }
 }
 
@@ -146,10 +144,6 @@ function analyzeTimeWindow(records: FundingRateTimeSeriesRecord[], windowMinutes
   const minRate = Math.min(...rates)
   const volatility = maxRate - minRate
   
-  // 🔥 新增：方向性分析
-  const isDirectionChange = (oldestRecord.fundingRate >= 0) !== (newestRecord.fundingRate >= 0)
-  const changeDirection = changeRate > 0 ? 'increase' : 'decrease'
-  
   return {
     windowMinutes,
     oldestRate: oldestRecord.fundingRate,
@@ -159,106 +153,37 @@ function analyzeTimeWindow(records: FundingRateTimeSeriesRecord[], windowMinutes
     maxRate,
     minRate,
     volatility,
-    recordCount: sortedRecords.length,
-    isDirectionChange,
-    changeDirection
+    recordCount: sortedRecords.length
   }
 }
 
-// 改进的重复检测函数 - 使用相似度而非精确匹配
-function isDuplicateFundingRateAlert(
+// 简化的重复检测函数
+function isDuplicateAlert(
   currentData: ProcessedFundingRateData,
-  historyRecords: FundingRateHistoryRecord[]
+  historyRecords: FundingRateHistoryRecord[],
+  threshold: number = 0.01 // 默认1%阈值
 ): boolean {
   if (!currentData.windowAnalysis) return false
   
   const currentSymbol = currentData.symbol
-  const currentFundingRate = currentData.fundingRate
-  const currentNextFundingTime = parseInt(currentData.nextFundingTime)
-  const currentWindowMinutes = currentData.windowAnalysis.windowMinutes
   const currentChangeRate = currentData.windowAnalysis.changeRate
   
-  // 检查是否存在相似的历史记录
-  const isDuplicate = historyRecords.some(record => {
-    // 必须是同一个symbol
+  // 检查最近30分钟内是否有相似的警报
+  const thirtyMinutesAgo = Date.now() - (30 * 60 * 1000)
+  
+  return historyRecords.some(record => {
     if (record.symbol !== currentSymbol) return false
+    if (record.notifiedAt < thirtyMinutesAgo) return false
     
-    // 必须是同一个时间窗口
-    if (record.windowMinutes !== currentWindowMinutes) return false
-    
-    // 检查通知时间间隔 - 如果在30分钟内已经通知过，进行相似度检查
-    const timeDiffMinutes = (Date.now() - record.notifiedAt) / (1000 * 60)
-    if (timeDiffMinutes >= 30) return false // 超过30分钟的记录不算重复
-    
-    // 🔥 关键改进：使用相似度阈值而非精确匹配
-    
-    // 1. 资金费率相似度检查（容忍度：0.01% 即 0.0001）
-    const rateTolerance = 0.0001
-    const rateIsSimilar = Math.abs(record.fundingRate - currentFundingRate) <= rateTolerance
-    
-    // 2. 变化率相似度检查（容忍度：0.01% 即 0.0001）
-    const changeRateTolerance = 0.0001
-    const changeRateIsSimilar = Math.abs(record.changeRate - currentChangeRate) <= changeRateTolerance
-    
-    // 3. 资金费率结算周期检查（允许±1小时的差异，因为可能有延迟）
-    const timeTolerance = 60 * 60 * 1000 // 1小时
-    const timeIsSimilar = Math.abs(record.nextFundingTime - currentNextFundingTime) <= timeTolerance
-    
-    // 4. 综合判断：如果资金费率、变化率都相似，且时间也相近，则认为是重复
-    const isSimilar = rateIsSimilar && changeRateIsSimilar && timeIsSimilar
+    // 使用与触发阈值相同的容忍度
+    const isSimilar = Math.abs(record.changeRate - currentChangeRate) <= threshold
     
     if (isSimilar) {
-      console.log(`🚫 ${currentSymbol} 检测到相似警报:`)
-      console.log(`   历史: 费率${(record.fundingRate * 100).toFixed(4)}%, 变化${(record.changeRate * 100).toFixed(4)}%, 时间${Math.floor(timeDiffMinutes)}分钟前`)
-      console.log(`   当前: 费率${(currentFundingRate * 100).toFixed(4)}%, 变化${(currentChangeRate * 100).toFixed(4)}%`)
+      console.log(`🚫 ${currentSymbol} 检测到相似警报: 当前变化${(currentChangeRate * 100).toFixed(4)}%, 历史变化${(record.changeRate * 100).toFixed(4)}%`)
     }
     
     return isSimilar
   })
-  
-  return isDuplicate
-}
-
-// 新增：更智能的重复检测函数，考虑趋势连续性
-function isRepeatedTrendAlert(
-  currentData: ProcessedFundingRateData,
-  historyRecords: FundingRateHistoryRecord[]
-): boolean {
-  if (!currentData.windowAnalysis) return false
-  
-  const currentSymbol = currentData.symbol
-  const currentChangeDirection = currentData.windowAnalysis.changeDirection
-  const currentChangeRate = Math.abs(currentData.windowAnalysis.changeRate)
-  
-  // 查找最近1小时内同方向的警报
-  const oneHourAgo = Date.now() - (60 * 60 * 1000)
-  const recentSameDirectionAlerts = historyRecords.filter(record => {
-    if (record.symbol !== currentSymbol) return false
-    if (record.notifiedAt < oneHourAgo) return false
-    
-    const recordDirection = record.changeRate > 0 ? 'increase' : 'decrease'
-    return recordDirection === currentChangeDirection
-  })
-  
-  if (recentSameDirectionAlerts.length === 0) return false
-  
-  // 如果最近1小时内有同方向的警报，且变化率没有显著增加，则认为是重复趋势
-  const latestAlert = recentSameDirectionAlerts.sort((a, b) => b.notifiedAt - a.notifiedAt)[0]
-  const latestChangeRate = Math.abs(latestAlert.changeRate)
-  
-  // 只有当前变化率比之前增加至少50%时，才认为是新的警报
-  const significantIncrease = currentChangeRate > (latestChangeRate * 1.5)
-  
-  const isRepeatedTrend = !significantIncrease
-  
-  if (isRepeatedTrend) {
-    console.log(`🔄 ${currentSymbol} 重复趋势过滤:`)
-    console.log(`   之前: ${currentChangeDirection} ${(latestChangeRate * 100).toFixed(4)}%`)
-    console.log(`   当前: ${currentChangeDirection} ${(currentChangeRate * 100).toFixed(4)}%`)
-    console.log(`   增幅: ${((currentChangeRate / latestChangeRate - 1) * 100).toFixed(1)}% (需要>50%)`)
-  }
-  
-  return isRepeatedTrend
 }
 
 // 从API读取数据文件
@@ -347,7 +272,7 @@ async function saveDataToAPI(data: FundingRateDataFile): Promise<void> {
 
 export default defineTask({
   meta: {
-    name: 'ol:funding-rate-alarm',
+    name: 'funding:rate',
     description: '资金费率时间窗口变化监控报警',
   },
   async run() {
@@ -499,29 +424,20 @@ export default defineTask({
         }
       }
 
-      // 🔥 更新过滤逻辑 - 考虑多种触发条件
+      // 简化过滤逻辑 - 只检查1%阈值
       const filteredData = successful.filter(item => {
         if (!item.windowAnalysis) return false
         
         const analysis = item.windowAnalysis
         
-        // 多重判断条件
+        // 简化为只检查绝对变化是否超过1%阈值
         const absoluteChangeExceeds = Math.abs(analysis.changeRate) > fundingRateThreshold
-        const volatilityExceeds = analysis.volatility > (fundingRateThreshold * 1.5) // 波动性阈值
-        const hasDirectionChange = analysis.isDirectionChange && Math.abs(analysis.changeRate) > (fundingRateThreshold * 0.5)
         
-        const shouldNotify = absoluteChangeExceeds || volatilityExceeds || hasDirectionChange
-        
-        if (shouldNotify) {
-          const reasons = []
-          if (absoluteChangeExceeds) reasons.push(`绝对变化${Math.abs(analysis.changeRate).toFixed(4)}`)
-          if (volatilityExceeds) reasons.push(`高波动${analysis.volatility.toFixed(4)}`)
-          if (hasDirectionChange) reasons.push('正负转换')
-          
-          console.log(`🔔 ${item.symbol} 触发警报: ${reasons.join(', ')}`)
+        if (absoluteChangeExceeds) {
+          console.log(`🔔 ${item.symbol} 触发警报: 变化${(analysis.changeRate * 100).toFixed(4)}% (阈值${fundingRateThreshold * 100}%)`)
         }
         
-        return shouldNotify
+        return absoluteChangeExceeds
       })
 
       console.log(`🔔 需要通知: ${filteredData.length}个币种`)
@@ -557,51 +473,20 @@ export default defineTask({
         }
       }
 
-      // 检查重复数据 - 使用改进的重复检测
+      // 简化重复检测
       const newAlerts = filteredData.filter((item, index) => {
-        const isDuplicateSimilar = isDuplicateFundingRateAlert(item, historyRecords)
-        const isRepeatedTrend = isRepeatedTrendAlert(item, historyRecords)
-        const shouldFilter = isDuplicateSimilar || isRepeatedTrend
+        const isDuplicate = isDuplicateAlert(item, historyRecords,fundingRateThreshold)
         
-        if (shouldFilter) {
-          const reason = isDuplicateSimilar ? '相似数据' : '重复趋势'
-          console.log(`🔍 [${index + 1}/${filteredData.length}] ${item.symbol} - ${reason}已过滤`)
+        if (isDuplicate) {
+          console.log(`🔍 [${index + 1}/${filteredData.length}] ${item.symbol} - 重复数据已过滤`)
         } else {
           console.log(`✅ [${index + 1}/${filteredData.length}] ${item.symbol} - 新警报数据`)
         }
         
-        return !shouldFilter
+        return !isDuplicate
       })
 
       console.log(`🔍 重复过滤结果: 总数${filteredData.length} -> 新警报${newAlerts.length} (过滤掉${filteredData.length - newAlerts.length}个重复)`)
-
-      // 如果没有新的警报数据，显示详细过滤信息
-      if (newAlerts.length === 0 && filteredData.length > 0) {
-        const executionTime = Date.now() - startTime
-        console.log(`📋 任务完成 - 重复数据过滤 (${executionTime}ms)`)
-        
-        // 显示被过滤的详细信息
-        filteredData.forEach((item, index) => {
-          if (item.windowAnalysis) {
-            const isDuplicateSimilar = isDuplicateFundingRateAlert(item, historyRecords)
-            const isRepeatedTrend = isRepeatedTrendAlert(item, historyRecords)
-            const filterReason = isDuplicateSimilar ? '相似数据' : isRepeatedTrend ? '重复趋势' : '未知原因'
-            
-            console.log(`🚫 [${index + 1}] ${item.symbol} 被过滤 (${filterReason}): 费率${item.fundingRatePercent.toFixed(4)}% 变化${(item.windowAnalysis.changeRate * 100).toFixed(4)}%`)
-          }
-        })
-        
-        return { 
-          result: 'ok', 
-          processed: symbols.length,
-          successful: successful.length,
-          failed: failed.length,
-          filtered: filteredData.length,
-          duplicates: filteredData.length,
-          message: '检测到重复/相似数据，未发送消息',
-          executionTimeMs: executionTime
-        }
-      }
 
       // 如果没有新的警报数据
       if (newAlerts.length === 0) {
@@ -619,7 +504,7 @@ export default defineTask({
         }
       }
 
-      // 🔥 更新消息构建 - 添加新指标
+      // 简化消息构建
       let message = `💰 资金费率监控报告 (${windowMinutes}分钟窗口)\n⏰ ${formatCurrentTime()}\n\n`
       
       newAlerts.forEach((item: ProcessedFundingRateData) => {
@@ -633,15 +518,6 @@ export default defineTask({
         message += `   当前费率: ${item.fundingRatePercent.toFixed(4)}%\n`
         message += `   ${windowMinutes}分钟前: ${(analysis.oldestRate * 100).toFixed(4)}%\n`
         message += `   变化: ${analysis.changeRate >= 0 ? '+' : ''}${(analysis.changeRate * 100).toFixed(4)}%\n`
-        
-        // 🔥 新增：方向性信息
-        if (analysis.isDirectionChange) {
-          message += `   ⚠️ 正负转换 (${analysis.oldestRate >= 0 ? '正→负' : '负→正'})\n`
-        }
-        
-        message += `   波动性: ${(analysis.volatility * 100).toFixed(4)}%\n`
-        message += `   最高/最低: ${(analysis.maxRate * 100).toFixed(4)}% / ${(analysis.minRate * 100).toFixed(4)}%\n`
-        message += `   数据点: ${analysis.recordCount}个\n`
         message += `   下次结算: ${item.formattedNextFundingTime}\n`
         message += `   价格: $${parseFloat(item.lastPrice).toLocaleString()}\n\n`
       })
