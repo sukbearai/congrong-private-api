@@ -1,9 +1,10 @@
-import { formatDate } from 'date-fns'
 import type { BybitApiResponse, KlineApiResponse } from './types'
 import type { 
   InstrumentInfoItem, 
   InstrumentError, 
-  KlineData
+  KlineData,
+  VWAPData,
+  VWAPCalculation
 } from './types'
 
 // 创建全局请求队列实例
@@ -12,16 +13,120 @@ const requestQueue = new RequestQueue({
   minDelay: 1000        // 最小延迟1秒
 })
 
+// 计算VWAP的函数
+const calculateVWAP = (klineData: KlineData[]): VWAPCalculation => {
+  let totalValue = 0 // 总价值 (价格 * 成交量)
+  let totalVolume = 0 // 总成交量
+  let totalTurnover = 0 // 总成交额
+  
+  // 按时间段计算的VWAP数据
+  const vwapByPeriod: VWAPData[] = []
+  
+  // 累计计算
+  let cumulativeValue = 0
+  let cumulativeVolume = 0
+  let cumulativeTurnover = 0
+  
+  klineData.forEach((candle, index) => {
+    // 典型价格 (High + Low + Close) / 3，也可以用 (Open + High + Low + Close) / 4
+    const typicalPrice = (candle.highPrice + candle.lowPrice + candle.closePrice) / 3
+    
+    // 当前K线的价值 = 典型价格 * 成交量
+    const currentValue = typicalPrice * candle.volume
+    
+    // 累计数据
+    cumulativeValue += currentValue
+    cumulativeVolume += candle.volume
+    cumulativeTurnover += candle.turnover
+    
+    // 累计VWAP = 累计价值 / 累计成交量
+    const cumulativeVWAP = cumulativeVolume > 0 ? cumulativeValue / cumulativeVolume : 0
+    
+    // 当前周期VWAP（基于turnover计算，更准确）
+    const periodVWAP = candle.volume > 0 ? candle.turnover / candle.volume : candle.closePrice
+    
+    vwapByPeriod.push({
+      timestamp: candle.startTime,
+      formattedTime: candle.formattedTime,
+      typicalPrice: parseFloat(typicalPrice.toFixed(8)),
+      volume: candle.volume,
+      turnover: candle.turnover,
+      periodVWAP: parseFloat(periodVWAP.toFixed(8)),
+      cumulativeVWAP: parseFloat(cumulativeVWAP.toFixed(8)),
+      cumulativeVolume: parseFloat(cumulativeVolume.toFixed(8)),
+      cumulativeTurnover: parseFloat(cumulativeTurnover.toFixed(8)),
+      // 价格偏离度
+      priceDeviation: candle.closePrice > 0 ? parseFloat(((cumulativeVWAP - candle.closePrice) / candle.closePrice * 100).toFixed(4)) : 0,
+      // 当前价格相对VWAP的位置
+      pricePosition: candle.closePrice > cumulativeVWAP ? 'above' : candle.closePrice < cumulativeVWAP ? 'below' : 'equal'
+    })
+  })
+  
+  // 最终总计算
+  totalValue = cumulativeValue
+  totalVolume = cumulativeVolume
+  totalTurnover = cumulativeTurnover
+  
+  // 最终VWAP
+  const finalVWAP = totalVolume > 0 ? totalValue / totalVolume : 0
+  
+  // 基于turnover的VWAP（更准确，因为turnover是实际成交金额）
+  const turnoverBasedVWAP = totalVolume > 0 ? totalTurnover / totalVolume : 0
+  
+  // 获取价格范围
+  const prices = klineData.map(k => k.closePrice)
+  const highestPrice = Math.max(...prices)
+  const lowestPrice = Math.min(...prices)
+  const currentPrice = prices[prices.length - 1]
+  
+  // 计算统计信息
+  const aboveVWAPCount = vwapByPeriod.filter(v => v.pricePosition === 'above').length
+  const belowVWAPCount = vwapByPeriod.filter(v => v.pricePosition === 'below').length
+  
+  return {
+    // 最终VWAP结果
+    finalVWAP: parseFloat(finalVWAP.toFixed(8)),
+    turnoverBasedVWAP: parseFloat(turnoverBasedVWAP.toFixed(8)),
+    
+    // 统计信息
+    totalVolume: parseFloat(totalVolume.toFixed(8)),
+    totalTurnover: parseFloat(totalTurnover.toFixed(8)),
+    totalValue: parseFloat(totalValue.toFixed(8)),
+    periodCount: klineData.length,
+    
+    // 价格信息
+    currentPrice: parseFloat(currentPrice.toFixed(8)),
+    highestPrice: parseFloat(highestPrice.toFixed(8)),
+    lowestPrice: parseFloat(lowestPrice.toFixed(8)),
+    
+    // 偏离度分析
+    currentDeviation: currentPrice > 0 ? parseFloat(((turnoverBasedVWAP - currentPrice) / currentPrice * 100).toFixed(4)) : 0,
+    maxDeviation: Math.max(...vwapByPeriod.map(v => Math.abs(v.priceDeviation))),
+    
+    // 市场趋势分析
+    aboveVWAPPercentage: parseFloat((aboveVWAPCount / vwapByPeriod.length * 100).toFixed(2)),
+    belowVWAPPercentage: parseFloat((belowVWAPCount / vwapByPeriod.length * 100).toFixed(2)),
+    
+    // 时间范围
+    startTime: klineData[0]?.startTime || 0,
+    endTime: klineData[klineData.length - 1]?.startTime || 0,
+    
+    // 详细数据
+    vwapByPeriod: vwapByPeriod
+  }
+}
+
 /**
- * 获取Bybit合约信息和K线数据
- * 返回指定交易对的合约信息和完整K线数据
+ * 获取Bybit合约信息和K线数据，并计算VWAP
+ * 返回指定交易对的合约信息、完整K线数据和VWAP计算结果
  * 使用: GET /exchanges/bybit/vwap
  * 参数: 
  *   - symbol: 合约名称，支持单个或多个（逗号分隔），如 BTCUSDT 或 BTCUSDT,ETHUSDT
  *   - category: 产品类型 (linear, inverse, spot) - 可选，默认linear
- *   - interval: 时间粒度 (1,3,5,15,30,60,120,240,360,720,D,M,W) - 可选，默认D
+ *   - interval: 时间粒度 (1,3,5,15,30,60,120,240,360,720,D,M,W) - 可选，默认1（1分钟，最精确）
  *   - status: 合约状态过滤 (Trading, Settled, Closed) - 可选
  *   - baseCoin: 交易币种过滤 - 可选
+ *   - includeDetails: 是否包含详细的VWAP计算过程 - 可选，默认false
  */
 export default defineEventHandler(async (event) => {
   try {
@@ -38,11 +143,12 @@ export default defineEventHandler(async (event) => {
       }).transform(str => str.includes(',') ? str.split(',').map(s => s.trim()) : [str]),
       interval: z.enum(['1', '3', '5', '15', '30', '60', '120', '240', '360', '720', 'D', 'M', 'W'], {
         invalid_type_error: 'interval 必须是有效的时间粒度',
-      }).default('D'),
+      }).default('1'), // 默认1分钟，获取最精确的VWAP
       status: z.enum(['Trading', 'Settled', 'Closed'], {
         invalid_type_error: 'status 必须是 Trading, Settled 或 Closed',
       }).optional(),
       baseCoin: z.string().optional(),
+      includeDetails: z.string().optional().transform(val => val === 'true'),
     })
 
     const validationResult = schema.safeParse(query)
@@ -52,11 +158,11 @@ export default defineEventHandler(async (event) => {
       return createErrorResponse(errorMessages, 400)
     }
 
-    const { category, symbol: symbols, interval, status, baseCoin } = validationResult.data
+    const { category, symbol: symbols, interval, status, baseCoin, includeDetails } = validationResult.data
 
     // 验证symbols数量限制
-    if (symbols.length > 5) {
-      return createErrorResponse('最多支持同时查询5个交易对', 400)
+    if (symbols.length > 3) {
+      return createErrorResponse('计算VWAP时最多支持同时查询3个交易对', 400)
     }
 
     // 获取配置信息
@@ -188,19 +294,19 @@ export default defineEventHandler(async (event) => {
       // 2. 获取完整K线数据（每个请求都通过队列）
       const klineData = await fetchAllKlineData(symbol, launchTime)
 
-      // 3. 处理合约信息
+      if (klineData.length === 0) {
+        throw new Error('没有可用的K线数据')
+      }
+
+      // 3. 计算VWAP
+      const vwapCalculation = calculateVWAP(klineData)
+
+      // 4. 处理合约信息
       const processedItem: InstrumentInfoItem = {
         ...instrumentInfo,
         launchTime: instrumentInfo.launchTime,
         launchTimeMs: launchTime,
-        formattedLaunchTime: new Date(launchTime).toLocaleString('zh-CN', {
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit'
-        }),
+        formattedLaunchTime: formatDateTime(launchTime),
         daysFromLaunch: Math.floor((Date.now() - launchTime) / (1000 * 60 * 60 * 24)),
         priceScaleNumber: parseInt(instrumentInfo.priceScale),
         tickSizeFloat: parseFloat(instrumentInfo.priceFilter.tickSize),
@@ -215,7 +321,12 @@ export default defineEventHandler(async (event) => {
         klineData: {
           interval,
           total: klineData.length,
-          data: klineData
+          data: includeDetails ? klineData : [] // 如果不需要详细数据，只返回汇总
+        },
+        vwap: {
+          ...vwapCalculation,
+          // 如果不需要详细数据，移除详细的VWAP计算过程
+          vwapByPeriod: includeDetails ? vwapCalculation.vwapByPeriod : []
         }
       }
     }
@@ -223,7 +334,7 @@ export default defineEventHandler(async (event) => {
     // 如果只有一个symbol
     if (symbols.length === 1) {
       const result = await processSymbolData(symbols[0])
-      return createSuccessResponse(result, '获取合约信息和K线数据成功')
+      return createSuccessResponse(result, `获取 ${symbols[0]} 合约信息、K线数据和VWAP计算完成`)
     }
 
     // 多个symbol的情况，使用Promise.allSettled并行处理（但每个请求内部使用队列）
@@ -280,9 +391,11 @@ export default defineEventHandler(async (event) => {
       summary: {
         total: symbols.length,
         successful: successful.length,
-        failed: failed.length
+        failed: failed.length,
+        interval,
+        includeDetails
       }
-    }, `获取合约信息和K线数据完成: ${successful.length}/${symbols.length} 成功`)
+    }, `获取合约信息、K线数据和VWAP计算完成: ${successful.length}/${symbols.length} 成功`)
 
   } catch (error) {
     return createErrorResponse(

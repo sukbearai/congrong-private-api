@@ -131,3 +131,51 @@ export interface KlineData {
   turnover: number
   formattedTime: string
 }
+
+// VWAP数据项
+export interface VWAPData {
+  timestamp: number
+  formattedTime: string
+  typicalPrice: number
+  volume: number
+  turnover: number
+  periodVWAP: number
+  cumulativeVWAP: number
+  cumulativeVolume: number
+  cumulativeTurnover: number
+  priceDeviation: number
+  pricePosition: 'above' | 'below' | 'equal'
+}
+
+// VWAP计算结果
+export interface VWAPCalculation {
+  // 最终VWAP结果
+  finalVWAP: number
+  turnoverBasedVWAP: number
+  
+  // 统计信息
+  totalVolume: number
+  totalTurnover: number
+  totalValue: number
+  periodCount: number
+  
+  // 价格信息
+  currentPrice: number
+  highestPrice: number
+  lowestPrice: number
+  
+  // 偏离度分析
+  currentDeviation: number
+  maxDeviation: number
+  
+  // 市场趋势分析
+  aboveVWAPPercentage: number
+  belowVWAPPercentage: number
+  
+  // 时间范围
+  startTime: number
+  endTime: number
+  
+  // 详细数据
+  vwapByPeriod: VWAPData[]
+}
