@@ -15,7 +15,6 @@ const requestQueue = new RequestQueue({
 
 // 计算VWAP的函数
 const calculateVWAP = (klineData: KlineData[]): VWAPCalculation => {
-  let totalValue = 0 // 总价值 (价格 * 成交量)
   let totalVolume = 0 // 总成交量
   let totalTurnover = 0 // 总成交额
   
@@ -23,26 +22,21 @@ const calculateVWAP = (klineData: KlineData[]): VWAPCalculation => {
   const vwapByPeriod: VWAPData[] = []
   
   // 累计计算
-  let cumulativeValue = 0
   let cumulativeVolume = 0
   let cumulativeTurnover = 0
   
   klineData.forEach((candle, index) => {
-    // 典型价格 (High + Low + Close) / 3，也可以用 (Open + High + Low + Close) / 4
+    // 典型价格 (High + Low + Close) / 3，仅用于参考
     const typicalPrice = (candle.highPrice + candle.lowPrice + candle.closePrice) / 3
     
-    // 当前K线的价值 = 典型价格 * 成交量
-    const currentValue = typicalPrice * candle.volume
-    
-    // 累计数据
-    cumulativeValue += currentValue
+    // 累计数据 - 使用实际成交数据
     cumulativeVolume += candle.volume
     cumulativeTurnover += candle.turnover
     
-    // 累计VWAP = 累计价值 / 累计成交量
-    const cumulativeVWAP = cumulativeVolume > 0 ? cumulativeValue / cumulativeVolume : 0
+    // 累计VWAP = 累计成交额 / 累计成交量（基于真实成交数据）
+    const cumulativeVWAP = cumulativeVolume > 0 ? cumulativeTurnover / cumulativeVolume : 0
     
-    // 当前周期VWAP（基于turnover计算，更准确）
+    // 当前周期VWAP（基于实际成交计算）
     const periodVWAP = candle.volume > 0 ? candle.turnover / candle.volume : candle.closePrice
     
     vwapByPeriod.push({
@@ -55,7 +49,7 @@ const calculateVWAP = (klineData: KlineData[]): VWAPCalculation => {
       cumulativeVWAP: parseFloat(cumulativeVWAP.toFixed(8)),
       cumulativeVolume: parseFloat(cumulativeVolume.toFixed(8)),
       cumulativeTurnover: parseFloat(cumulativeTurnover.toFixed(8)),
-      // 价格偏离度
+      // 价格偏离度基于真实VWAP计算
       priceDeviation: candle.closePrice > 0 ? parseFloat(((cumulativeVWAP - candle.closePrice) / candle.closePrice * 100).toFixed(4)) : 0,
       // 当前价格相对VWAP的位置
       pricePosition: candle.closePrice > cumulativeVWAP ? 'above' : candle.closePrice < cumulativeVWAP ? 'below' : 'equal'
@@ -63,15 +57,11 @@ const calculateVWAP = (klineData: KlineData[]): VWAPCalculation => {
   })
   
   // 最终总计算
-  totalValue = cumulativeValue
   totalVolume = cumulativeVolume
   totalTurnover = cumulativeTurnover
   
-  // 最终VWAP
-  const finalVWAP = totalVolume > 0 ? totalValue / totalVolume : 0
-  
-  // 基于turnover的VWAP（更准确，因为turnover是实际成交金额）
-  const turnoverBasedVWAP = totalVolume > 0 ? totalTurnover / totalVolume : 0
+  // 最终VWAP = 总成交额 / 总成交量
+  const finalVWAP = totalVolume > 0 ? totalTurnover / totalVolume : 0
   
   // 获取价格范围
   const prices = klineData.map(k => k.closePrice)
@@ -84,14 +74,14 @@ const calculateVWAP = (klineData: KlineData[]): VWAPCalculation => {
   const belowVWAPCount = vwapByPeriod.filter(v => v.pricePosition === 'below').length
   
   return {
-    // 最终VWAP结果
+    // 最终VWAP结果 - 基于真实成交数据
     finalVWAP: parseFloat(finalVWAP.toFixed(8)),
-    turnoverBasedVWAP: parseFloat(turnoverBasedVWAP.toFixed(8)),
+    turnoverBasedVWAP: parseFloat(finalVWAP.toFixed(8)), // 与finalVWAP相同，因为都基于turnover
     
     // 统计信息
     totalVolume: parseFloat(totalVolume.toFixed(8)),
     totalTurnover: parseFloat(totalTurnover.toFixed(8)),
-    totalValue: parseFloat(totalValue.toFixed(8)),
+    totalValue: parseFloat(totalTurnover.toFixed(8)), // 使用实际成交额
     periodCount: klineData.length,
     
     // 价格信息
@@ -100,7 +90,7 @@ const calculateVWAP = (klineData: KlineData[]): VWAPCalculation => {
     lowestPrice: parseFloat(lowestPrice.toFixed(8)),
     
     // 偏离度分析
-    currentDeviation: currentPrice > 0 ? parseFloat(((turnoverBasedVWAP - currentPrice) / currentPrice * 100).toFixed(4)) : 0,
+    currentDeviation: currentPrice > 0 ? parseFloat(((finalVWAP - currentPrice) / currentPrice * 100).toFixed(4)) : 0,
     maxDeviation: Math.max(...vwapByPeriod.map(v => Math.abs(v.priceDeviation))),
     
     // 市场趋势分析
@@ -168,6 +158,10 @@ export default defineEventHandler(async (event) => {
     // 获取配置信息
     const config = useRuntimeConfig()
     const bybitApiUrl = config.bybit?.bybitApiUrl
+
+    if (!bybitApiUrl) {
+      return createErrorResponse('Bybit API URL 配置未找到', 500)
+    }
 
     // 获取合约信息的函数（使用队列）
     const fetchInstrumentInfo = async (symbol: string) => {
@@ -244,9 +238,14 @@ export default defineEventHandler(async (event) => {
       let currentEnd = Date.now()
       let currentStart = launchTime
 
-      while (true) {
+      // 添加数据获取限制，防止过量请求
+      let requestCount = 0
+      const maxRequests = 10000 // 限制最大请求次数
+
+      while (requestCount < maxRequests) {
         // 每次K线请求都通过队列处理
         const klineData = await fetchKlineData(symbol, currentStart, currentEnd)
+        requestCount++
         
         if (klineData.length === 0) {
           break
@@ -277,6 +276,7 @@ export default defineEventHandler(async (event) => {
           formattedTime: formatDateTime(parseInt(item[0]))
         }))
         .sort((a, b) => a.startTime - b.startTime)
+        .filter(item => item.volume > 0 && item.turnover > 0) // 过滤无效数据
     }
 
     // 处理单个symbol的完整流程
