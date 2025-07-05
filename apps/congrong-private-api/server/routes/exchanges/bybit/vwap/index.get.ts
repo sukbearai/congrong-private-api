@@ -336,13 +336,13 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    // 获取完整K线数据的函数 - 修改为支持自定义时间范围
+    // 获取完整K线数据的函数 - 修正后的版本
     const fetchAllKlineData = async (symbol: string, launchTime: number): Promise<KlineData[]> => {
       const allKlineData: string[][] = []
       
       // 使用自定义时间范围，如果没有提供则使用默认值
-      let currentEnd = customEndTime || Date.now()
       let actualStartTime = customStartTime || launchTime
+      let actualEndTime = customEndTime || Date.now()
       
       // 如果自定义起始时间早于合约上线时间，则使用合约上线时间
       if (actualStartTime < launchTime) {
@@ -350,42 +350,56 @@ export default defineEventHandler(async (event) => {
         actualStartTime = launchTime
       }
 
+      // 从最新时间开始，向历史时间倒推获取数据
+      let currentEnd = actualEndTime
       let currentStart = actualStartTime
 
       // 添加数据获取限制，防止过量请求
       let requestCount = 0
-      const maxRequests = 1000000 // 限制最大请求次数
+      const maxRequests = 1000 // 限制最大请求次数，防止无限循环
+
+      console.log(`开始获取 ${symbol} 的K线数据，时间范围: ${formatDateTime(actualStartTime)} 到 ${formatDateTime(actualEndTime)}`)
 
       while (requestCount < maxRequests) {
-        // 每次K线请求都通过队列处理
+        // 每次请求最多获取1000条数据
         const klineData = await fetchKlineData(symbol, currentStart, currentEnd)
         requestCount++
         
+        console.log(`第${requestCount}次请求 ${symbol}，获取到 ${klineData.length} 条K线数据`)
+        
         if (klineData.length === 0) {
+          console.log(`${symbol} 没有更多数据，停止获取`)
           break
         }
 
+        // 添加到总数据中
         allKlineData.push(...klineData)
 
-        // 如果返回的数据少于1000条，说明已经获取完所有数据
+        // 如果返回的数据少于1000条，说明已经获取完这个时间段的所有数据
         if (klineData.length < 1000) {
+          console.log(`${symbol} 数据获取完成，最后一次获取到 ${klineData.length} 条数据`)
           break
         }
 
-        // 更新时间范围，继续获取更早的数据
+        // 获取这批数据中最早的时间戳
         const earliestTime = parseInt(klineData[klineData.length - 1][0])
         
-        // 如果已经到达起始时间范围，停止获取
+        // 如果最早时间已经小于等于起始时间，说明已经获取完所有需要的数据
         if (earliestTime <= actualStartTime) {
+          console.log(`${symbol} 已到达起始时间，停止获取`)
           break
         }
         
+        // 更新下次请求的结束时间为当前批次最早时间的前一毫秒
+        // 这样避免重复获取数据
         currentEnd = earliestTime - 1
+        
+        // currentStart 保持不变，始终是我们想要的起始时间
       }
 
-      console.log(`请求了 ${symbol} 的 K线数据，共获取到 ${allKlineData.length} 条数据`)
+      console.log(`${symbol} K线数据获取完成，共 ${requestCount} 次请求，获取到 ${allKlineData.length} 条原始数据`)
 
-      // 转换为KlineData格式并按时间正序排列
+      // 转换为KlineData格式并去重
       const processedData = allKlineData
         .map(item => ({
           startTime: parseInt(item[0]),
@@ -397,12 +411,18 @@ export default defineEventHandler(async (event) => {
           turnover: parseFloat(item[6]),
           formattedTime: formatDateTime(parseInt(item[0]))
         }))
-        .filter(item => {
-          // 过滤无效数据和时间范围外的数据
-          return item.startTime >= actualStartTime && 
-                 item.startTime <= currentEnd
+        .filter((item, index, arr) => {
+          // 过滤时间范围外的数据
+          if (item.startTime < actualStartTime || item.startTime > actualEndTime) {
+            return false
+          }
+          
+          // 去重：保留第一次出现的数据
+          return arr.findIndex(other => other.startTime === item.startTime) === index
         })
-        .sort((a, b) => a.startTime - b.startTime)
+        .sort((a, b) => a.startTime - b.startTime) // 按时间正序排列
+
+      console.log(`${symbol} 处理后的K线数据: ${processedData.length} 条，时间范围: ${processedData[0]?.formattedTime} 到 ${processedData[processedData.length - 1]?.formattedTime}`)
 
       return processedData
     }
@@ -475,16 +495,13 @@ export default defineEventHandler(async (event) => {
         klineData: {
           interval,
           total: klineData.length,
-          // 添加时间范围信息
           timeRange,
-          data: includeDetails ? klineData : [] // 如果不需要详细数据，只返回汇总
+          data: includeDetails ? klineData : []
         },
         vwap: {
           ...vwapCalculation,
-          // 如果不需要详细数据，移除详细的VWAP计算过程
           vwapByPeriod: includeDetails ? vwapCalculation.vwapByPeriod : []
         },
-        // 添加保存状态信息
         dataSaved: saveData
       }
     }
