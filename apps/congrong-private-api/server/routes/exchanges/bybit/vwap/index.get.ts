@@ -434,6 +434,57 @@ export default defineEventHandler(async (event) => {
       console.log(`实际时间范围: ${finalData[0]?.formattedTime} 到 ${finalData[finalData.length - 1]?.formattedTime}`)
       console.log(`目标时间范围: ${formatDateTime(targetStartTime)} 到 ${formatDateTime(targetEndTime)}`)
 
+      // 🎯 计算并打印成本价信息
+      if (finalData.length > 0) {
+        // 计算总成交量和总成交额
+        let totalVolume = 0
+        let totalTurnover = 0
+        
+        finalData.forEach(candle => {
+          totalVolume += candle.volume
+          totalTurnover += candle.turnover
+        })
+        
+        // 计算平均成本价 (VWAP)
+        const averageCostPrice = totalVolume > 0 ? totalTurnover / totalVolume : 0
+        
+        // 获取其他价格信息
+        const firstPrice = finalData[0].openPrice  // 开始价格
+        const lastPrice = finalData[finalData.length - 1].closePrice  // 最新价格
+        const highestPrice = Math.max(...finalData.map(k => k.highPrice))
+        const lowestPrice = Math.min(...finalData.map(k => k.lowPrice))
+        
+        // 计算价格变化
+        const priceChange = lastPrice - firstPrice
+        const priceChangePercent = firstPrice > 0 ? (priceChange / firstPrice * 100) : 0
+        
+        // 计算当前价格相对成本价的偏离
+        const costPriceDeviation = averageCostPrice > 0 ? ((lastPrice - averageCostPrice) / averageCostPrice * 100) : 0
+        
+        console.log(`\n🎯 ========== ${symbol} 成本价分析 ==========`)
+        console.log(`📊 数据周期: ${finalData.length} 分钟 (${formatDateTime(finalData[0].startTime)} - ${formatDateTime(finalData[finalData.length - 1].startTime)})`)
+        console.log(`💰 平均成本价 (VWAP): ${averageCostPrice.toFixed(8)} USDT`)
+        console.log(`🔸 开始价格: ${firstPrice.toFixed(8)} USDT`)
+        console.log(`🔹 最新价格: ${lastPrice.toFixed(8)} USDT`)
+        console.log(`📈 最高价格: ${highestPrice.toFixed(8)} USDT`)
+        console.log(`📉 最低价格: ${lowestPrice.toFixed(8)} USDT`)
+        console.log(`📊 总成交量: ${totalVolume.toFixed(8)} ${symbol.replace('USDT', '')}`)
+        console.log(`💵 总成交额: ${totalTurnover.toFixed(2)} USDT`)
+        console.log(`\n📊 价格变化分析:`)
+        console.log(`   期间涨跌: ${priceChange >= 0 ? '+' : ''}${priceChange.toFixed(8)} USDT (${priceChangePercent >= 0 ? '+' : ''}${priceChangePercent.toFixed(2)}%)`)
+        console.log(`   相对成本价偏离: ${costPriceDeviation >= 0 ? '+' : ''}${costPriceDeviation.toFixed(2)}% ${costPriceDeviation > 0 ? '(高于成本价)' : costPriceDeviation < 0 ? '(低于成本价)' : '(等于成本价)'}`)
+        
+        if (costPriceDeviation > 5) {
+          console.log(`🚀 当前价格明显高于成本价，可能存在获利机会`)
+        } else if (costPriceDeviation < -5) {
+          console.log(`🔻 当前价格明显低于成本价，可能存在抄底机会`)
+        } else {
+          console.log(`⚖️  当前价格接近成本价，市场相对平衡`)
+        }
+        
+        console.log(`============================================\n`)
+      }
+
       return finalData
     }
 
@@ -459,6 +510,17 @@ export default defineEventHandler(async (event) => {
       // 3. 计算VWAP
       const vwapCalculation = calculateVWAP(klineData)
 
+      // 🎯 打印最终成本价总结
+      console.log(`\n💎 ========== ${symbol} 最终成本价总结 ==========`)
+      console.log(`💰 VWAP成本价: ${vwapCalculation.finalVWAP} USDT`)
+      console.log(`📊 数据点数: ${vwapCalculation.periodCount} 个`)
+      console.log(`🔸 当前价格: ${vwapCalculation.currentPrice} USDT`)
+      console.log(`📊 价格偏离: ${vwapCalculation.currentDeviation}%`)
+      console.log(`📈 价格区间: ${vwapCalculation.lowestPrice} - ${vwapCalculation.highestPrice} USDT`)
+      console.log(`💵 总交易额: ${vwapCalculation.totalTurnover} USDT`)
+      console.log(`📊 总交易量: ${vwapCalculation.totalVolume} ${symbol.replace('USDT', '')}`)
+      console.log(`===============================================\n`)
+
       // 4. 计算实际使用的时间范围
       const actualStartTime = customStartTime && customStartTime >= launchTime ? customStartTime : launchTime
       const actualEndTime = customEndTime || Date.now()
@@ -480,6 +542,7 @@ export default defineEventHandler(async (event) => {
       if (saveData) {
         try {
           await saveKlineDataToAPI(symbol, klineData, vwapCalculation, interval, timeRange)
+          console.log(`💾 ${symbol} 成本价数据已保存到API`)
         } catch (error) {
           console.warn(`⚠️ ${symbol} 数据保存失败，但不影响返回结果:`, error)
         }
@@ -512,7 +575,21 @@ export default defineEventHandler(async (event) => {
           ...vwapCalculation,
           vwapByPeriod: includeDetails ? vwapCalculation.vwapByPeriod : []
         },
-        dataSaved: saveData
+        dataSaved: saveData,
+        // 🎯 添加成本价信息到返回结果
+        costPriceAnalysis: {
+          averageCostPrice: vwapCalculation.finalVWAP,
+          currentPrice: vwapCalculation.currentPrice,
+          priceDeviation: vwapCalculation.currentDeviation,
+          totalVolume: vwapCalculation.totalVolume,
+          totalTurnover: vwapCalculation.totalTurnover,
+          priceRange: {
+            highest: vwapCalculation.highestPrice,
+            lowest: vwapCalculation.lowestPrice
+          },
+          marketStatus: vwapCalculation.currentDeviation > 5 ? 'above_cost' : 
+                       vwapCalculation.currentDeviation < -5 ? 'below_cost' : 'near_cost'
+        }
       }
     }
 
@@ -568,6 +645,27 @@ export default defineEventHandler(async (event) => {
     // 如果所有请求都失败
     if (successful.length === 0) {
       return createErrorResponse('所有交易对数据获取失败', 500)
+    }
+
+    // 🎯 打印所有交易对的成本价汇总
+    if (successful.length > 1) {
+      console.log(`\n🌟 ========== 多交易对成本价汇总 ==========`)
+      successful.forEach((item, index) => {
+        const costPrice = item.costPriceAnalysis?.averageCostPrice || item.vwap?.finalVWAP || 0
+        const currentPrice = item.costPriceAnalysis?.currentPrice || item.vwap?.currentPrice || 0
+        const deviation = item.costPriceAnalysis?.priceDeviation || item.vwap?.currentDeviation || 0
+        const status = item.costPriceAnalysis?.marketStatus || 'unknown'
+        
+        const statusEmoji = status === 'above_cost' ? '🚀' : status === 'below_cost' ? '🔻' : '⚖️'
+        const statusText = status === 'above_cost' ? '高于成本' : status === 'below_cost' ? '低于成本' : '接近成本'
+        
+        console.log(`${index + 1}. ${item.symbol}:`)
+        console.log(`   💰 成本价: ${costPrice.toFixed(8)} USDT`)
+        console.log(`   🔹 当前价: ${currentPrice.toFixed(8)} USDT`)
+        console.log(`   📊 偏离度: ${deviation >= 0 ? '+' : ''}${deviation.toFixed(2)}% ${statusEmoji} ${statusText}`)
+        console.log(``)
+      })
+      console.log(`===============================================\n`)
     }
 
     // 返回成功响应
