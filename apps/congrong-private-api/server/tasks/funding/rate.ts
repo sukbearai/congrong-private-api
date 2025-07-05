@@ -67,6 +67,7 @@ interface FundingRateTimeSeriesRecord {
   symbol: string
   fundingRate: number
   timestamp: number
+  formatCurrentTime: string
   nextFundingTime: number
 }
 
@@ -285,7 +286,7 @@ export default defineTask({
       
       // 配置监控参数
       const windowMinutes = 15 // 时间窗口：15分钟
-      const fundingRateThreshold = 0.005 // 0.5% 的资金费率变化阈值
+      const fundingRateThreshold = 0.001 // 0.1% 的资金费率变化阈值
 
       console.log(`🚀 资金费率监控任务开始 - 监控${symbols.length}个币种, 时间窗口${windowMinutes}分钟, 阈值${fundingRateThreshold * 100}%`)
 
@@ -357,6 +358,7 @@ export default defineTask({
             symbol,
             fundingRate,
             timestamp: currentTimestamp,
+            formatCurrentTime: formatDateTime(currentTimestamp),
             nextFundingTime: parseInt(ticker.nextFundingTime)
           }
           
