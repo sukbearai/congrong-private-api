@@ -117,6 +117,8 @@ const calculateVWAP = (klineData: KlineData[]): VWAPCalculation => {
  *   - status: 合约状态过滤 (Trading, Settled, Closed) - 可选
  *   - baseCoin: 交易币种过滤 - 可选
  *   - includeDetails: 是否包含详细的VWAP计算过程 - 可选，默认false
+ *   - startTime: K线数据起始时间（毫秒时间戳）- 可选，默认使用合约上线时间(launchTime)
+ *   - endTime: K线数据结束时间（毫秒时间戳）- 可选，默认使用当前时间
  */
 export default defineEventHandler(async (event) => {
   try {
@@ -139,6 +141,24 @@ export default defineEventHandler(async (event) => {
       }).optional(),
       baseCoin: z.string().optional(),
       includeDetails: z.string().optional().transform(val => val === 'true'),
+      // 新增参数：自定义起始时间
+      startTime: z.string().optional().transform(val => {
+        if (!val) return undefined
+        const timestamp = parseInt(val)
+        if (isNaN(timestamp)) {
+          throw new Error('startTime 必须是有效的时间戳')
+        }
+        return timestamp
+      }),
+      // 新增参数：自定义结束时间
+      endTime: z.string().optional().transform(val => {
+        if (!val) return undefined
+        const timestamp = parseInt(val)
+        if (isNaN(timestamp)) {
+          throw new Error('endTime 必须是有效的时间戳')
+        }
+        return timestamp
+      }),
     })
 
     const validationResult = schema.safeParse(query)
@@ -148,11 +168,25 @@ export default defineEventHandler(async (event) => {
       return createErrorResponse(errorMessages, 400)
     }
 
-    const { category, symbol: symbols, interval, status, baseCoin, includeDetails } = validationResult.data
+    const { 
+      category, 
+      symbol: symbols, 
+      interval, 
+      status, 
+      baseCoin, 
+      includeDetails,
+      startTime: customStartTime,
+      endTime: customEndTime
+    } = validationResult.data
 
     // 验证symbols数量限制
     if (symbols.length > 3) {
       return createErrorResponse('计算VWAP时最多支持同时查询3个交易对', 400)
+    }
+
+    // 验证时间范围的合理性
+    if (customStartTime && customEndTime && customStartTime >= customEndTime) {
+      return createErrorResponse('起始时间必须小于结束时间', 400)
     }
 
     // 获取配置信息
@@ -232,11 +266,21 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    // 获取完整K线数据的函数
+    // 获取完整K线数据的函数 - 修改为支持自定义时间范围
     const fetchAllKlineData = async (symbol: string, launchTime: number): Promise<KlineData[]> => {
       const allKlineData: string[][] = []
-      let currentEnd = Date.now()
-      let currentStart = launchTime
+      
+      // 使用自定义时间范围，如果没有提供则使用默认值
+      let currentEnd = customEndTime || Date.now()
+      let actualStartTime = customStartTime || launchTime
+      
+      // 如果自定义起始时间早于合约上线时间，则使用合约上线时间
+      if (actualStartTime < launchTime) {
+        console.warn(`自定义起始时间 ${actualStartTime} 早于合约上线时间 ${launchTime}，将使用合约上线时间`)
+        actualStartTime = launchTime
+      }
+
+      let currentStart = actualStartTime
 
       // 添加数据获取限制，防止过量请求
       let requestCount = 0
@@ -260,11 +304,17 @@ export default defineEventHandler(async (event) => {
 
         // 更新时间范围，继续获取更早的数据
         const earliestTime = parseInt(klineData[klineData.length - 1][0])
+        
+        // 如果已经到达起始时间范围，停止获取
+        if (earliestTime <= actualStartTime) {
+          break
+        }
+        
         currentEnd = earliestTime - 1
       }
 
       // 转换为KlineData格式并按时间正序排列
-      return allKlineData
+      const processedData = allKlineData
         .map(item => ({
           startTime: parseInt(item[0]),
           openPrice: parseFloat(item[1]),
@@ -275,8 +325,16 @@ export default defineEventHandler(async (event) => {
           turnover: parseFloat(item[6]),
           formattedTime: formatDateTime(parseInt(item[0]))
         }))
+        .filter(item => {
+          // 过滤无效数据和时间范围外的数据
+          return item.volume > 0 && 
+                 item.turnover > 0 && 
+                 item.startTime >= actualStartTime && 
+                 item.startTime <= currentEnd
+        })
         .sort((a, b) => a.startTime - b.startTime)
-        .filter(item => item.volume > 0 && item.turnover > 0) // 过滤无效数据
+
+      return processedData
     }
 
     // 处理单个symbol的完整流程
@@ -314,6 +372,10 @@ export default defineEventHandler(async (event) => {
         maxOrderQtyFloat: parseFloat(instrumentInfo.lotSizeFilter.maxOrderQty),
       }
 
+      // 计算实际使用的时间范围
+      const actualStartTime = customStartTime && customStartTime >= launchTime ? customStartTime : launchTime
+      const actualEndTime = customEndTime || Date.now()
+
       return {
         category: instrumentResponse.result.category,
         symbol: instrumentInfo.symbol,
@@ -321,6 +383,19 @@ export default defineEventHandler(async (event) => {
         klineData: {
           interval,
           total: klineData.length,
+          // 添加时间范围信息
+          timeRange: {
+            requestedStartTime: customStartTime,
+            requestedEndTime: customEndTime,
+            actualStartTime: actualStartTime,
+            actualEndTime: actualEndTime,
+            contractLaunchTime: launchTime,
+            formattedActualStartTime: formatDateTime(actualStartTime),
+            formattedActualEndTime: formatDateTime(actualEndTime),
+            formattedContractLaunchTime: formatDateTime(launchTime),
+            isCustomRange: !!(customStartTime || customEndTime),
+            durationDays: Math.floor((actualEndTime - actualStartTime) / (1000 * 60 * 60 * 24))
+          },
           data: includeDetails ? klineData : [] // 如果不需要详细数据，只返回汇总
         },
         vwap: {
@@ -393,7 +468,12 @@ export default defineEventHandler(async (event) => {
         successful: successful.length,
         failed: failed.length,
         interval,
-        includeDetails
+        includeDetails,
+        timeRange: {
+          customStartTime,
+          customEndTime,
+          isCustomRange: !!(customStartTime || customEndTime)
+        }
       }
     }, `获取合约信息、K线数据和VWAP计算完成: ${successful.length}/${symbols.length} 成功`)
 
