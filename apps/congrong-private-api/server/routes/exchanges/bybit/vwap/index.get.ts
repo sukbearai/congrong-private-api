@@ -354,7 +354,7 @@ export default defineEventHandler(async (event) => {
 
       // 添加数据获取限制，防止过量请求
       let requestCount = 0
-      const maxRequests = 10000 // 限制最大请求次数
+      const maxRequests = 1000000 // 限制最大请求次数
 
       while (requestCount < maxRequests) {
         // 每次K线请求都通过队列处理
@@ -383,6 +383,8 @@ export default defineEventHandler(async (event) => {
         currentEnd = earliestTime - 1
       }
 
+      console.log(`请求了 ${symbol} 的 K线数据，共获取到 ${allKlineData.length} 条数据`)
+
       // 转换为KlineData格式并按时间正序排列
       const processedData = allKlineData
         .map(item => ({
@@ -397,9 +399,7 @@ export default defineEventHandler(async (event) => {
         }))
         .filter(item => {
           // 过滤无效数据和时间范围外的数据
-          return item.volume > 0 && 
-                 item.turnover > 0 && 
-                 item.startTime >= actualStartTime && 
+          return item.startTime >= actualStartTime && 
                  item.startTime <= currentEnd
         })
         .sort((a, b) => a.startTime - b.startTime)

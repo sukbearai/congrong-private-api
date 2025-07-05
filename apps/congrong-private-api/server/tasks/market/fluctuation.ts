@@ -123,11 +123,21 @@ export default defineTask({
       // 获取单个币种K线数据的函数
       const fetchCryptoKlineData = async (monitorConfig: MonitorConfig): Promise<CryptoPriceData> => {
         return await requestQueue.add(async () => {
+           // 计算时间范围
+          const now = Date.now()
+
+          // 结束时间
+          const endTime = now
+          // 开始时间 - 监控时间段前
+          const startTime = now - (klineLimit * 60 * 1000)
+
           // 构建查询参数
           const params = new URLSearchParams({
             category,
             symbol: monitorConfig.symbol,
             interval: klineInterval,
+            start: startTime.toString(),
+            end: endTime.toString(),
             limit: klineLimit.toString(),
           })
 
