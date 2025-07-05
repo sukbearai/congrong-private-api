@@ -202,7 +202,7 @@ export default defineEventHandler(async (event) => {
       symbol: z.string({
         required_error: '缺少必要参数 symbol',
       }).transform(str => str.includes(',') ? str.split(',').map(s => s.trim()) : [str]),
-      interval: z.enum(['1', '3', '5', '15', '30', '60', '120', '240', '360', '720', 'D', 'M', 'W'], {
+      interval: z.enum(['1'], {
         invalid_type_error: 'interval 必须是有效的时间粒度',
       }).default('1'), // 默认1分钟，获取最精确的VWAP
       status: z.enum(['Trading', 'Settled', 'Closed'], {
