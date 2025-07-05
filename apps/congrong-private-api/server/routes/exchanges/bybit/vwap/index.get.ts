@@ -564,6 +564,7 @@ export default defineEventHandler(async (event) => {
       return {
         category: instrumentResponse.result.category,
         symbol: instrumentInfo.symbol,
+        finalVWAP: vwapCalculation.finalVWAP,
         instrumentInfo: processedItem,
         klineData: {
           interval,
