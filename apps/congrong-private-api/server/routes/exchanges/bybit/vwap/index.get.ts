@@ -7,11 +7,78 @@ import type {
   VWAPCalculation
 } from './types'
 
+// 定义 JSON 存储 API 写入响应的类型
+interface JsonStorageWriteResponse {
+  code: number
+  message: string
+  data?: {
+    key: string
+    size: number
+    timestamp: string
+  }
+}
+
 // 创建全局请求队列实例
 const requestQueue = new RequestQueue({ 
   maxRandomDelay: 3000, // 最大随机延迟3秒
   minDelay: 1000        // 最小延迟1秒
 })
+
+// 保存K线数据到API
+async function saveKlineDataToAPI(symbol: string, klineData: KlineData[], vwapCalculation: VWAPCalculation, interval: string, timeRange: any): Promise<void> {
+  const apiUrl = 'https://shebei.congrongtech.cn/telegram/upload'
+  const dataKey = `data/kline-vwap-${symbol.toLowerCase()}-${interval}`
+  
+  try {
+    const saveData = {
+      symbol,
+      interval,
+      dataCount: klineData.length,
+      lastUpdated: Date.now(),
+      formattedLastUpdated: formatDateTime(Date.now()),
+      timeRange: {
+        startTime: klineData[0]?.startTime || 0,
+        endTime: klineData[klineData.length - 1]?.startTime || 0,
+        formattedStartTime: klineData[0]?.formattedTime || '',
+        formattedEndTime: klineData[klineData.length - 1]?.formattedTime || '',
+        ...timeRange
+      },
+      klineData: klineData.map(candle => ({
+        timestamp: candle.startTime,
+        formattedTime: candle.formattedTime,
+        open: candle.openPrice,
+        high: candle.highPrice,
+        low: candle.lowPrice,
+        close: candle.closePrice,
+        volume: candle.volume,
+        turnover: candle.turnover
+      }))
+    }
+    
+    const response = await fetch(`${apiUrl}?key=${dataKey}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(saveData),
+    })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP 错误: ${response.status}`)
+    }
+    
+    const result = await response.json() as JsonStorageWriteResponse
+    
+    if (result.code !== 0) {
+      throw new Error(`API 错误: ${result.message}`)
+    }
+    
+    console.log(`💾 ${symbol} (${interval}) K线和VWAP数据保存成功: ${klineData.length}条K线数据`)
+  } catch (error) {
+    console.error(`❌ ${symbol} (${interval}) 保存K线数据失败:`, error)
+    // 不抛出错误，避免影响主流程
+  }
+}
 
 // 计算VWAP的函数
 const calculateVWAP = (klineData: KlineData[]): VWAPCalculation => {
@@ -119,6 +186,7 @@ const calculateVWAP = (klineData: KlineData[]): VWAPCalculation => {
  *   - includeDetails: 是否包含详细的VWAP计算过程 - 可选，默认false
  *   - startTime: K线数据起始时间（毫秒时间戳）- 可选，默认使用合约上线时间(launchTime)
  *   - endTime: K线数据结束时间（毫秒时间戳）- 可选，默认使用当前时间
+ *   - saveData: 是否保存数据到API - 可选，默认false
  */
 export default defineEventHandler(async (event) => {
   try {
@@ -141,6 +209,7 @@ export default defineEventHandler(async (event) => {
       }).optional(),
       baseCoin: z.string().optional(),
       includeDetails: z.string().optional().transform(val => val === 'true'),
+      saveData: z.string().optional().transform(val => val === 'true'),
       // 新增参数：自定义起始时间
       startTime: z.string().optional().transform(val => {
         if (!val) return undefined
@@ -175,6 +244,7 @@ export default defineEventHandler(async (event) => {
       status, 
       baseCoin, 
       includeDetails,
+      saveData,
       startTime: customStartTime,
       endTime: customEndTime
     } = validationResult.data
@@ -359,7 +429,33 @@ export default defineEventHandler(async (event) => {
       // 3. 计算VWAP
       const vwapCalculation = calculateVWAP(klineData)
 
-      // 4. 处理合约信息
+      // 4. 计算实际使用的时间范围
+      const actualStartTime = customStartTime && customStartTime >= launchTime ? customStartTime : launchTime
+      const actualEndTime = customEndTime || Date.now()
+      
+      const timeRange = {
+        requestedStartTime: customStartTime,
+        requestedEndTime: customEndTime,
+        actualStartTime: actualStartTime,
+        actualEndTime: actualEndTime,
+        contractLaunchTime: launchTime,
+        formattedActualStartTime: formatDateTime(actualStartTime),
+        formattedActualEndTime: formatDateTime(actualEndTime),
+        formattedContractLaunchTime: formatDateTime(launchTime),
+        isCustomRange: !!(customStartTime || customEndTime),
+        durationDays: Math.floor((actualEndTime - actualStartTime) / (1000 * 60 * 60 * 24))
+      }
+
+      // 5. 保存K线数据到API（如果启用）
+      if (saveData) {
+        try {
+          await saveKlineDataToAPI(symbol, klineData, vwapCalculation, interval, timeRange)
+        } catch (error) {
+          console.warn(`⚠️ ${symbol} 数据保存失败，但不影响返回结果:`, error)
+        }
+      }
+
+      // 6. 处理合约信息
       const processedItem: InstrumentInfoItem = {
         ...instrumentInfo,
         launchTime: instrumentInfo.launchTime,
@@ -372,10 +468,6 @@ export default defineEventHandler(async (event) => {
         maxOrderQtyFloat: parseFloat(instrumentInfo.lotSizeFilter.maxOrderQty),
       }
 
-      // 计算实际使用的时间范围
-      const actualStartTime = customStartTime && customStartTime >= launchTime ? customStartTime : launchTime
-      const actualEndTime = customEndTime || Date.now()
-
       return {
         category: instrumentResponse.result.category,
         symbol: instrumentInfo.symbol,
@@ -384,32 +476,24 @@ export default defineEventHandler(async (event) => {
           interval,
           total: klineData.length,
           // 添加时间范围信息
-          timeRange: {
-            requestedStartTime: customStartTime,
-            requestedEndTime: customEndTime,
-            actualStartTime: actualStartTime,
-            actualEndTime: actualEndTime,
-            contractLaunchTime: launchTime,
-            formattedActualStartTime: formatDateTime(actualStartTime),
-            formattedActualEndTime: formatDateTime(actualEndTime),
-            formattedContractLaunchTime: formatDateTime(launchTime),
-            isCustomRange: !!(customStartTime || customEndTime),
-            durationDays: Math.floor((actualEndTime - actualStartTime) / (1000 * 60 * 60 * 24))
-          },
+          timeRange,
           data: includeDetails ? klineData : [] // 如果不需要详细数据，只返回汇总
         },
         vwap: {
           ...vwapCalculation,
           // 如果不需要详细数据，移除详细的VWAP计算过程
           vwapByPeriod: includeDetails ? vwapCalculation.vwapByPeriod : []
-        }
+        },
+        // 添加保存状态信息
+        dataSaved: saveData
       }
     }
 
     // 如果只有一个symbol
     if (symbols.length === 1) {
       const result = await processSymbolData(symbols[0])
-      return createSuccessResponse(result, `获取 ${symbols[0]} 合约信息、K线数据和VWAP计算完成`)
+      const message = `获取 ${symbols[0]} 合约信息、K线数据和VWAP计算完成${saveData ? '，数据已保存' : ''}`
+      return createSuccessResponse(result, message)
     }
 
     // 多个symbol的情况，使用Promise.allSettled并行处理（但每个请求内部使用队列）
@@ -460,6 +544,7 @@ export default defineEventHandler(async (event) => {
     }
 
     // 返回成功响应
+    const message = `获取合约信息、K线数据和VWAP计算完成: ${successful.length}/${symbols.length} 成功${saveData ? '，数据已保存' : ''}`
     return createSuccessResponse({
       list: successful,
       errors: failed.length > 0 ? failed : undefined,
@@ -469,13 +554,14 @@ export default defineEventHandler(async (event) => {
         failed: failed.length,
         interval,
         includeDetails,
+        saveData,
         timeRange: {
           customStartTime,
           customEndTime,
           isCustomRange: !!(customStartTime || customEndTime)
         }
       }
-    }, `获取合约信息、K线数据和VWAP计算完成: ${successful.length}/${symbols.length} 成功`)
+    }, message)
 
   } catch (error) {
     return createErrorResponse(
