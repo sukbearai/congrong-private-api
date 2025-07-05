@@ -109,6 +109,7 @@ const calculateVWAP = (klineData: KlineData[]): VWAPCalculation => {
     vwapByPeriod.push({
       timestamp: candle.startTime,
       formattedTime: candle.formattedTime,
+      openPrice: candle.openPrice,
       typicalPrice: parseFloat(typicalPrice.toFixed(8)),
       volume: candle.volume,
       turnover: candle.turnover,

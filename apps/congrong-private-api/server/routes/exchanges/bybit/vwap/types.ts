@@ -136,6 +136,7 @@ export interface KlineData {
 export interface VWAPData {
   timestamp: number
   formattedTime: string
+  openPrice: number
   typicalPrice: number
   volume: number
   turnover: number
