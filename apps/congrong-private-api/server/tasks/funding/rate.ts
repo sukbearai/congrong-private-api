@@ -285,7 +285,7 @@ export default defineTask({
       const category = 'linear'
       
       // 配置监控参数
-      const windowMinutes = 15 // 时间窗口：15分钟
+      const windowMinutes = 2 // 时间窗口：2分钟
       const fundingRateThreshold = 0.003 // 0.3% 的资金费率变化阈值
 
       console.log(`🚀 资金费率监控任务开始 - 监控${symbols.length}个币种, 时间窗口${windowMinutes}分钟, 阈值${fundingRateThreshold * 100}%`)
