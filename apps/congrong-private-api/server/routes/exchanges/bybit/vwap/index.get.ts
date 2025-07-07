@@ -18,6 +18,13 @@ interface JsonStorageWriteResponse {
   }
 }
 
+// 定义Telegram发送结果类型
+interface TelegramSendResult {
+  success: boolean
+  messageId?: number
+  error?: string
+}
+
 // 创建全局请求队列实例
 const requestQueue = new RequestQueue({
   maxRandomDelay: 3000, // 最大随机延迟3秒
@@ -34,6 +41,125 @@ const formatTurnover = (turnover: number): string => {
     return `${(turnover / 1000).toFixed(2)}K`
   }
   return turnover.toFixed(2)
+}
+
+// 发送消息到Telegram频道的函数 - 使用bot实例
+const sendToTelegram = async (message: string, channelId?: string): Promise<TelegramSendResult> => {
+  try {
+    // 使用默认频道ID或传入的频道ID
+    const targetChannelId = channelId || '-1002663808019' // 使用你的频道ID作为默认值
+    
+    const result = await bot.api.sendMessage(targetChannelId, message, {
+      parse_mode: 'Markdown',
+    })
+
+    return {
+      success: true,
+      messageId: result.message_id
+    }
+
+  } catch (error) {
+    console.error('发送Telegram消息失败:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : '发送失败'
+    }
+  }
+}
+
+// 格式化VWAP分析结果为Telegram消息
+const formatVWAPResultForTelegram = (data: any): string => {
+  const { symbol, costPriceAnalysis, turnover7DaysAnalysis, vwap } = data
+  
+  // 获取基础信息
+  const costPrice = costPriceAnalysis?.averageCostPrice || vwap?.finalVWAP || 0
+  const currentPrice = costPriceAnalysis?.currentPrice || vwap?.currentPrice || 0
+  const deviation = costPriceAnalysis?.priceDeviation || vwap?.currentDeviation || 0
+  const status = costPriceAnalysis?.marketStatus || 'unknown'
+  
+  // 状态emoji和文本
+  const statusEmoji = status === 'above_cost' ? '🚀' : status === 'below_cost' ? '🔻' : '⚖️'
+  const statusText = status === 'above_cost' ? '高于成本价' : status === 'below_cost' ? '低于成本价' : '接近成本价'
+  
+  // 7天成交额信息
+  const turnover7Days = turnover7DaysAnalysis
+  const changePercent = turnover7Days?.comparison?.changePercent || 0
+  const trendEmoji = turnover7Days?.last7Days?.trend === 'increasing' ? '📈' : 
+                    turnover7Days?.last7Days?.trend === 'decreasing' ? '📉' : '➡️'
+  
+  // 构建消息
+  let message = `💎 *${symbol} VWAP成本价分析*\n\n`
+  
+  // 基础价格信息
+  message += `💰 *平均成本价*: \`${costPrice.toFixed(8)}\` USDT\n`
+  message += `🔹 *当前价格*: \`${currentPrice.toFixed(8)}\` USDT\n`
+  message += `📊 *价格偏离*: \`${deviation >= 0 ? '+' : ''}${deviation.toFixed(2)}%\` ${statusEmoji} ${statusText}\n\n`
+  
+  // 价格区间
+  if (vwap?.highestPrice && vwap?.lowestPrice) {
+    message += `📈 *最高价*: \`${vwap.highestPrice.toFixed(8)}\` USDT\n`
+    message += `📉 *最低价*: \`${vwap.lowestPrice.toFixed(8)}\` USDT\n\n`
+  }
+  
+  // 交易数据
+  if (vwap) {
+    message += `📊 *总成交量*: \`${vwap.totalVolume.toLocaleString()}\` ${symbol.replace('USDT', '')}\n`
+    message += `💵 *总成交额*: \`${vwap.totalTurnover.toLocaleString()}\` USDT\n\n`
+  }
+  
+  // 7天成交额分析
+  if (turnover7Days) {
+    message += `📈 *7天成交额分析*\n`
+    message += `💰 总成交额: \`${turnover7Days.last7Days.totalTurnover.toLocaleString()}\` USDT\n`
+    message += `📊 日均成交额: \`${turnover7Days.last7Days.averageDailyTurnover.toLocaleString()}\` USDT\n`
+    message += `🔄 环比变化: \`${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%\` ${trendEmoji}\n`
+    message += `📈 波动率: \`${turnover7Days.last7Days.volatility.toFixed(2)}%\`\n`
+    message += `📝 趋势分析: ${turnover7Days.comparison.trendAnalysis}\n\n`
+  }
+  
+  // 投资建议
+  if (deviation > 5) {
+    message += `🚀 *建议*: 当前价格明显高于成本价，可能存在获利机会\n`
+  } else if (deviation < -5) {
+    message += `🔻 *建议*: 当前价格明显低于成本价，可能存在抄底机会\n`
+  } else {
+    message += `⚖️ *建议*: 当前价格接近成本价，市场相对平衡\n`
+  }
+  
+  // 添加时间戳
+  message += `\n⏰ 分析时间: ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`
+  
+  return message
+}
+
+// 格式化多交易对结果为Telegram消息
+const formatMultipleResultsForTelegram = (results: any[], summary: any): string => {
+  let message = `🌟 *多交易对VWAP成本价汇总*\n\n`
+  
+  results.forEach((item, index) => {
+    const costPrice = item.costPriceAnalysis?.averageCostPrice || item.vwap?.finalVWAP || 0
+    const currentPrice = item.costPriceAnalysis?.currentPrice || item.vwap?.currentPrice || 0
+    const deviation = item.costPriceAnalysis?.priceDeviation || item.vwap?.currentDeviation || 0
+    const status = item.costPriceAnalysis?.marketStatus || 'unknown'
+    
+    const statusEmoji = status === 'above_cost' ? '🚀' : status === 'below_cost' ? '🔻' : '⚖️'
+    const statusText = status === 'above_cost' ? '高于成本' : status === 'below_cost' ? '低于成本' : '接近成本'
+    
+    message += `*${index + 1}\\. ${item.symbol}*\n`
+    message += `💰 成本价: \`${costPrice.toFixed(8)}\` USDT\n`
+    message += `🔹 当前价: \`${currentPrice.toFixed(8)}\` USDT\n`
+    message += `📊 偏离度: \`${deviation >= 0 ? '+' : ''}${deviation.toFixed(2)}%\` ${statusEmoji} ${statusText}\n\n`
+  })
+  
+  message += `📊 *汇总信息*\n`
+  message += `✅ 成功: ${summary.successful}/${summary.total}\n`
+  if (summary.failed > 0) {
+    message += `❌ 失败: ${summary.failed}\n`
+  }
+  
+  message += `\n⏰ 分析时间: ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`
+  
+  return message
 }
 
 // 添加7天成交额统计的函数 - 增强版本，包含日环比变化率
@@ -381,6 +507,8 @@ const calculateVWAP = (klineData: KlineData[]): VWAPCalculation => {
  *   - startTime: K线数据起始时间（毫秒时间戳）- 可选，默认使用合约上线时间(launchTime)
  *   - endTime: K线数据结束时间（毫秒时间戳）- 可选，默认使用当前时间
  *   - saveData: 是否保存数据到API - 可选，默认false
+ *   - sendToTelegram: 是否发送结果到Telegram - 可选，默认false
+ *   - telegramChannelId: 指定Telegram频道ID - 可选，默认使用默认频道
  */
 export default defineEventHandler(async (event) => {
   try {
@@ -404,6 +532,10 @@ export default defineEventHandler(async (event) => {
       baseCoin: z.string().optional(),
       includeDetails: z.string().optional().transform(val => val === 'true'),
       saveData: z.string().optional().transform(val => val === 'true'),
+      // 新增参数：是否发送到Telegram
+      sendToTelegram: z.string().optional().transform(val => val === 'true'),
+      // 可选的Telegram频道ID
+      telegramChannelId: z.string().optional(),
       // 新增参数：自定义起始时间
       startTime: z.string().optional().transform(val => {
         if (!val) return undefined
@@ -439,6 +571,8 @@ export default defineEventHandler(async (event) => {
       baseCoin,
       includeDetails,
       saveData,
+      sendToTelegram: shouldSendToTelegram,
+      telegramChannelId,
       startTime: customStartTime,
       endTime: customEndTime
     } = validationResult.data
@@ -833,8 +967,34 @@ export default defineEventHandler(async (event) => {
     // 如果只有一个symbol
     if (symbols.length === 1) {
       const result = await processSymbolData(symbols[0])
-      const message = `获取 ${symbols[0]} 合约信息、K线数据和VWAP计算完成${saveData ? '，数据已保存' : ''}`
-      return createSuccessResponse(result, message)
+      
+      // 发送到Telegram（如果启用）
+      let telegramResult: TelegramSendResult | undefined
+      if (shouldSendToTelegram) {
+        try {
+          const telegramMessage = formatVWAPResultForTelegram(result)
+          telegramResult = await sendToTelegram(telegramMessage, telegramChannelId)
+          
+          if (telegramResult.success) {
+            console.log(`📱 ${symbols[0]} VWAP分析结果已发送到Telegram频道`)
+          } else {
+            console.warn(`⚠️ ${symbols[0]} Telegram发送失败: ${telegramResult.error}`)
+          }
+        } catch (error) {
+          console.warn(`⚠️ ${symbols[0]} Telegram发送出错:`, error)
+          telegramResult = {
+            success: false,
+            error: error instanceof Error ? error.message : 'Telegram发送失败'
+          }
+        }
+      }
+      
+      const message = `获取 ${symbols[0]} 合约信息、K线数据和VWAP计算完成${saveData ? '，数据已保存' : ''}${shouldSendToTelegram ? (telegramResult?.success ? '，已发送到Telegram' : '，Telegram发送失败') : ''}`
+      
+      return createSuccessResponse({
+        ...result,
+        telegramSent: shouldSendToTelegram ? telegramResult : undefined
+      }, message)
     }
 
     // 多个symbol的情况，使用Promise.allSettled并行处理（但每个请求内部使用队列）
@@ -916,8 +1076,34 @@ export default defineEventHandler(async (event) => {
       console.log(`===============================================\n`)
     }
 
+    // 在多个symbol的最终返回之前添加Telegram发送逻辑
+    let telegramResult: TelegramSendResult | undefined
+    if (shouldSendToTelegram && successful.length > 0) {
+      try {
+        const telegramMessage = formatMultipleResultsForTelegram(successful, {
+          total: symbols.length,
+          successful: successful.length,
+          failed: failed.length
+        })
+        telegramResult = await sendToTelegram(telegramMessage, telegramChannelId)
+        
+        if (telegramResult.success) {
+          console.log(`📱 多交易对VWAP分析结果已发送到Telegram频道`)
+        } else {
+          console.warn(`⚠️ 多交易对Telegram发送失败: ${telegramResult.error}`)
+        }
+      } catch (error) {
+        console.warn(`⚠️ 多交易对Telegram发送出错:`, error)
+        telegramResult = {
+          success: false,
+          error: error instanceof Error ? error.message : 'Telegram发送失败'
+        }
+      }
+    }
+
     // 返回成功响应
-    const message = `获取合约信息、K线数据和VWAP计算完成: ${successful.length}/${symbols.length} 成功${saveData ? '，数据已保存' : ''}`
+    const message = `获取合约信息、K线数据和VWAP计算完成: ${successful.length}/${symbols.length} 成功${saveData ? '，数据已保存' : ''}${shouldSendToTelegram ? (telegramResult?.success ? '，已发送到Telegram' : '，Telegram发送失败') : ''}`
+    
     return createSuccessResponse({
       list: successful,
       errors: failed.length > 0 ? failed : undefined,
@@ -928,12 +1114,14 @@ export default defineEventHandler(async (event) => {
         interval,
         includeDetails,
         saveData,
+        sendToTelegram: shouldSendToTelegram,
         timeRange: {
           customStartTime,
           customEndTime,
           isCustomRange: !!(customStartTime || customEndTime)
         }
-      }
+      },
+      telegramSent: shouldSendToTelegram ? telegramResult : undefined
     }, message)
 
   } catch (error) {
