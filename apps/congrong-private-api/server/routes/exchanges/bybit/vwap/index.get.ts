@@ -196,7 +196,7 @@ const formatMultipleResultsForTelegram = (results: any[], summary: any): string 
     message += `❌ 失败: ${summary.failed}\n`
   }
 
-  message += `\n⏰ 分析时间: ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`
+  message += `\n⏰ 分析时间: ${formatDateTime(Date.now())}\n`
 
   return message
 }
