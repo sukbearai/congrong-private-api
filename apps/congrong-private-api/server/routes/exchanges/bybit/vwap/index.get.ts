@@ -276,7 +276,8 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: n
       // 4小时间隔：显示日期和时间段
       const monthDay = `${startDate.getMonth() + 1}/${startDate.getDate()}`
       const startHour = startDate.getHours().toString().padStart(2, '0')
-      const endHour = endDate.getHours().toString().padStart(2, '0')
+      // 修复：对于4小时间隔，结束时间应该是开始时间+4小时
+      const endHour = ((startDate.getHours() + intervalHours) % 24).toString().padStart(2, '0')
       const timeRange = `${monthDay} ${startHour}:00-${endHour}:00`
       return isCurrentInterval ? `${timeRange}*` : timeRange
     } else {
@@ -292,6 +293,7 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: n
       return isCurrentInterval ? `${timeRange}*` : timeRange
     }
   }
+
 
   // 计算对齐到间隔边界的时间函数
   const alignToIntervalBoundary = (timestamp: number, intervalMs: number): number => {
