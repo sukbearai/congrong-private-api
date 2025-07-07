@@ -48,7 +48,7 @@ const sendToTelegram = async (message: string, channelId?: string): Promise<Tele
   try {
     // 使用默认频道ID或传入的频道ID
     const targetChannelId = channelId || '-1002663808019' // 使用你的频道ID作为默认值
-    
+
     const result = await bot.api.sendMessage(targetChannelId, message, {
       parse_mode: 'Markdown',
     })
@@ -70,43 +70,43 @@ const sendToTelegram = async (message: string, channelId?: string): Promise<Tele
 // 格式化VWAP分析结果为Telegram消息
 const formatVWAPResultForTelegram = (data: any): string => {
   const { symbol, costPriceAnalysis, turnover7DaysAnalysis, vwap } = data
-  
+
   // 获取基础信息
   const costPrice = costPriceAnalysis?.averageCostPrice || vwap?.finalVWAP || 0
   const currentPrice = costPriceAnalysis?.currentPrice || vwap?.currentPrice || 0
   const deviation = costPriceAnalysis?.priceDeviation || vwap?.currentDeviation || 0
   const status = costPriceAnalysis?.marketStatus || 'unknown'
-  
+
   // 状态emoji和文本
   const statusEmoji = status === 'above_cost' ? '🚀' : status === 'below_cost' ? '🔻' : '⚖️'
   const statusText = status === 'above_cost' ? '高于成本价' : status === 'below_cost' ? '低于成本价' : '接近成本价'
-  
+
   // 7天成交额信息
   const turnover7Days = turnover7DaysAnalysis
   const changePercent = turnover7Days?.comparison?.changePercent || 0
-  const trendEmoji = turnover7Days?.last7Days?.trend === 'increasing' ? '📈' : 
-                    turnover7Days?.last7Days?.trend === 'decreasing' ? '📉' : '➡️'
-  
+  const trendEmoji = turnover7Days?.last7Days?.trend === 'increasing' ? '📈' :
+    turnover7Days?.last7Days?.trend === 'decreasing' ? '📉' : '➡️'
+
   // 构建消息
   let message = `💎 *${symbol} VWAP成本价分析*\n\n`
-  
+
   // 基础价格信息
   message += `💰 *平均成本价*: \`${costPrice.toFixed(8)}\` USDT\n`
   message += `🔹 *当前价格*: \`${currentPrice.toFixed(8)}\` USDT\n`
   message += `📊 *价格偏离*: \`${deviation >= 0 ? '+' : ''}${deviation.toFixed(2)}%\` ${statusEmoji} ${statusText}\n\n`
-  
+
   // 价格区间
   if (vwap?.highestPrice && vwap?.lowestPrice) {
     message += `📈 *最高价*: \`${vwap.highestPrice.toFixed(8)}\` USDT\n`
     message += `📉 *最低价*: \`${vwap.lowestPrice.toFixed(8)}\` USDT\n\n`
   }
-  
+
   // 交易数据
   if (vwap) {
     message += `📊 *总成交量*: \`${vwap.totalVolume.toLocaleString()}\` ${symbol.replace('USDT', '')}\n`
     message += `💵 *总成交额*: \`${vwap.totalTurnover.toLocaleString()}\` USDT\n\n`
   }
-  
+
   // 7天成交额分析
   if (turnover7Days) {
     message += `📈 *7天成交额分析*\n`
@@ -115,8 +115,54 @@ const formatVWAPResultForTelegram = (data: any): string => {
     message += `🔄 环比变化: \`${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%\` ${trendEmoji}\n`
     message += `📈 波动率: \`${turnover7Days.last7Days.volatility.toFixed(2)}%\`\n`
     message += `📝 趋势分析: ${turnover7Days.comparison.trendAnalysis}\n\n`
+
+    // 每日成交额 - emoji风格 + 变化百分比
+    message += `📅 *每日成交额明细*\n`
+    turnover7Days.last7Days.dailyTurnover.forEach((day, index) => {
+      const dateObj = new Date(day.date)
+      const monthDay = `${dateObj.getMonth() + 1}/${dateObj.getDate()}`
+
+      // 根据变化方向选择emoji
+      let statusEmoji = '📊' // 默认或第一天
+      if (index > 0 && day.changeFromPrevious !== undefined) {
+        if (day.changeFromPrevious > 0) {
+          statusEmoji = '🟢' // 上涨
+        } else if (day.changeFromPrevious < 0) {
+          statusEmoji = '🔴' // 下跌
+        } else {
+          statusEmoji = '🟡' // 持平
+        }
+      }
+
+      // 变化文本 - 包含变化百分比
+      let changeText = ''
+      if (day.changePercentFromPrevious !== undefined && index > 0) {
+        const sign = day.changePercentFromPrevious >= 0 ? '+' : ''
+        const changePercent = day.changePercentFromPrevious.toFixed(1)
+
+        // 根据变化幅度选择更详细的emoji
+        let changeEmoji = ''
+        if (day.changePercentFromPrevious > 10) {
+          changeEmoji = '🚀' // 大幅上涨
+        } else if (day.changePercentFromPrevious > 0) {
+          changeEmoji = '📈' // 小幅上涨
+        } else if (day.changePercentFromPrevious < -10) {
+          changeEmoji = '💥' // 大幅下跌
+        } else if (day.changePercentFromPrevious < 0) {
+          changeEmoji = '📉' // 小幅下跌
+        } else {
+          changeEmoji = '➡️' // 持平
+        }
+
+        changeText = ` ${changeEmoji} (${sign}${changePercent}%)`
+      }
+
+      message += `${statusEmoji} ${day.dayOfWeek} ${monthDay}: \`${day.formattedTurnover}\` USDT${changeText}\n`
+    })
+
+    message += '\n'
   }
-  
+
   // 投资建议
   if (deviation > 5) {
     message += `🚀 *建议*: 当前价格明显高于成本价，可能存在获利机会\n`
@@ -125,40 +171,40 @@ const formatVWAPResultForTelegram = (data: any): string => {
   } else {
     message += `⚖️ *建议*: 当前价格接近成本价，市场相对平衡\n`
   }
-  
+
   // 添加时间戳
   message += `\n⏰ 分析时间: ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`
-  
+
   return message
 }
 
 // 格式化多交易对结果为Telegram消息
 const formatMultipleResultsForTelegram = (results: any[], summary: any): string => {
   let message = `🌟 *多交易对VWAP成本价汇总*\n\n`
-  
+
   results.forEach((item, index) => {
     const costPrice = item.costPriceAnalysis?.averageCostPrice || item.vwap?.finalVWAP || 0
     const currentPrice = item.costPriceAnalysis?.currentPrice || item.vwap?.currentPrice || 0
     const deviation = item.costPriceAnalysis?.priceDeviation || item.vwap?.currentDeviation || 0
     const status = item.costPriceAnalysis?.marketStatus || 'unknown'
-    
+
     const statusEmoji = status === 'above_cost' ? '🚀' : status === 'below_cost' ? '🔻' : '⚖️'
     const statusText = status === 'above_cost' ? '高于成本' : status === 'below_cost' ? '低于成本' : '接近成本'
-    
+
     message += `*${index + 1}\\. ${item.symbol}*\n`
     message += `💰 成本价: \`${costPrice.toFixed(8)}\` USDT\n`
     message += `🔹 当前价: \`${currentPrice.toFixed(8)}\` USDT\n`
     message += `📊 偏离度: \`${deviation >= 0 ? '+' : ''}${deviation.toFixed(2)}%\` ${statusEmoji} ${statusText}\n\n`
   })
-  
+
   message += `📊 *汇总信息*\n`
   message += `✅ 成功: ${summary.successful}/${summary.total}\n`
   if (summary.failed > 0) {
     message += `❌ 失败: ${summary.failed}\n`
   }
-  
+
   message += `\n⏰ 分析时间: ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`
-  
+
   return message
 }
 
@@ -879,14 +925,14 @@ export default defineEventHandler(async (event) => {
     // 如果只有一个symbol
     if (symbols.length === 1) {
       const result = await processSymbolData(symbols[0])
-      
+
       // 发送到Telegram（如果启用）
       let telegramResult: TelegramSendResult | undefined
       if (shouldSendToTelegram) {
         try {
           const telegramMessage = formatVWAPResultForTelegram(result)
           telegramResult = await sendToTelegram(telegramMessage, telegramChannelId)
-          
+
           if (telegramResult.success) {
             console.log(`📱 ${symbols[0]} VWAP分析结果已发送到Telegram频道`)
           } else {
@@ -900,9 +946,9 @@ export default defineEventHandler(async (event) => {
           }
         }
       }
-      
+
       const message = `获取 ${symbols[0]} 合约信息、K线数据和VWAP计算完成${saveData ? '，数据已保存' : ''}${shouldSendToTelegram ? (telegramResult?.success ? '，已发送到Telegram' : '，Telegram发送失败') : ''}`
-      
+
       return createSuccessResponse({
         ...result,
         telegramSent: shouldSendToTelegram ? telegramResult : undefined
@@ -966,7 +1012,7 @@ export default defineEventHandler(async (event) => {
           failed: failed.length
         })
         telegramResult = await sendToTelegram(telegramMessage, telegramChannelId)
-        
+
         if (telegramResult.success) {
           console.log(`📱 多交易对VWAP分析结果已发送到Telegram频道`)
         } else {
@@ -983,7 +1029,7 @@ export default defineEventHandler(async (event) => {
 
     // 返回成功响应
     const message = `获取合约信息、K线数据和VWAP计算完成: ${successful.length}/${symbols.length} 成功${saveData ? '，数据已保存' : ''}${shouldSendToTelegram ? (telegramResult?.success ? '，已发送到Telegram' : '，Telegram发送失败') : ''}`
-    
+
     return createSuccessResponse({
       list: successful,
       errors: failed.length > 0 ? failed : undefined,
