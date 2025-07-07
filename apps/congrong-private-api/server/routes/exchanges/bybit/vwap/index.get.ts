@@ -437,7 +437,7 @@ const calculateVWAP = (klineData: KlineData[]): VWAPCalculation => {
       cumulativeVolume: parseFloat(cumulativeVolume.toFixed(8)),
       cumulativeTurnover: parseFloat(cumulativeTurnover.toFixed(8)),
       // 价格偏离度基于真实VWAP计算
-      priceDeviation: candle.closePrice > 0 ? parseFloat(((cumulativeVWAP - candle.closePrice) / candle.closePrice * 100).toFixed(4)) : 0,
+      priceDeviation: cumulativeVWAP > 0 ? parseFloat(((candle.closePrice - cumulativeVWAP) / cumulativeVWAP * 100).toFixed(4)) : 0,
       // 当前价格相对VWAP的位置
       pricePosition: candle.closePrice > cumulativeVWAP ? 'above' : candle.closePrice < cumulativeVWAP ? 'below' : 'equal'
     })
@@ -477,7 +477,7 @@ const calculateVWAP = (klineData: KlineData[]): VWAPCalculation => {
     lowestPrice: parseFloat(lowestPrice.toFixed(8)),
 
     // 偏离度分析
-    currentDeviation: currentPrice > 0 ? parseFloat(((finalVWAP - currentPrice) / currentPrice * 100).toFixed(4)) : 0,
+    currentDeviation: finalVWAP > 0 ? parseFloat(((currentPrice - finalVWAP) / finalVWAP * 100).toFixed(4)) : 0,
     maxDeviation: Math.max(...vwapByPeriod.map(v => Math.abs(v.priceDeviation))),
 
     // 市场趋势分析
