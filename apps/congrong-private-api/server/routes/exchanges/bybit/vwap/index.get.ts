@@ -153,7 +153,7 @@ const formatVWAPResultForTelegram = (data: any): string => {
         changeText = ` (${sign}${changePercent}%)`
       }
 
-    message += `${statusEmoji} \`${interval.timeLabel}\`: \`${interval.formattedTurnover} USDT\`${changeText}\n`
+      message += `${statusEmoji} \`${interval.timeLabel}\`: \`${interval.formattedTurnover} USDT\`${changeText}\n`
     })
 
     message += '\n'
@@ -258,8 +258,16 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: n
   // 生成时间标签的函数
   const getTimeLabel = (startTime: number, endTime: number, intervalHours: number, isCurrentInterval: boolean = false): string => {
     const startDate = new Date(startTime)
-    const endDate = new Date(endTime)
-    
+    let endDate: Date
+
+    if (isCurrentInterval) {
+      // 对于当前进行中的时间段，显示该时间段的理论结束时间而不是当前时间
+      const theoreticalEndTime = startTime + (intervalHours * 60 * 60 * 1000)
+      endDate = new Date(theoreticalEndTime)
+    } else {
+      endDate = new Date(endTime)
+    }
+
     if (intervalHours === 24) {
       // 24小时间隔：只显示月/日
       const monthDay = `${startDate.getMonth() + 1}/${startDate.getDate()}`
@@ -290,21 +298,21 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: n
     // 计算从UTC 00:00:00开始的时间偏移
     const utcMidnight = Math.floor(timestamp / oneDayMs) * oneDayMs
     const timeFromMidnight = timestamp - utcMidnight
-    
+
     // 计算当前时间属于哪个间隔（从0开始）
     const intervalIndex = Math.floor(timeFromMidnight / intervalMs)
-    
+
     // 返回该间隔的开始时间
     return utcMidnight + (intervalIndex * intervalMs)
   }
 
   // 生成时间间隔数组
-  const intervals: Array<{startTime: number, endTime: number, isCurrentInterval: boolean}> = []
-  
+  const intervals: Array<{ startTime: number, endTime: number, isCurrentInterval: boolean }> = []
+
   // 找到最近7天范围内的所有间隔
   // 从7天前开始，到现在为止
   let currentIntervalStart = alignToIntervalBoundary(last7DaysStart, intervalMs)
-  
+
   // 如果对齐后的时间早于7天前，则向前移动一个间隔
   if (currentIntervalStart < last7DaysStart) {
     currentIntervalStart += intervalMs
@@ -316,7 +324,7 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: n
   while (currentIntervalStart <= now) {
     let intervalEnd: number
     let isCurrentInterval = false
-    
+
     if (currentIntervalStart === nowIntervalStart) {
       // 这是当前正在进行的时间段，结束时间就是当前时间
       intervalEnd = now
@@ -325,7 +333,7 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: n
       // 这是已完成的时间段，结束时间是下一个间隔的开始时间
       intervalEnd = Math.min(currentIntervalStart + intervalMs, now)
     }
-    
+
     // 只包含有意义的间隔（至少有部分时间在7天范围内）
     if (intervalEnd > last7DaysStart && currentIntervalStart < now) {
       intervals.push({
@@ -334,12 +342,12 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: n
         isCurrentInterval
       })
     }
-    
+
     // 如果这是当前时间段，就停止循环
     if (isCurrentInterval) {
       break
     }
-    
+
     currentIntervalStart += intervalMs
   }
 
@@ -361,11 +369,11 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: n
 
   intervals.forEach((interval, index) => {
     // 计算该间隔内的成交额 - 使用 <= 确保包含边界数据
-    const intervalData = last7DaysData.filter(k => 
+    const intervalData = last7DaysData.filter(k =>
       k.startTime >= interval.startTime && k.startTime < interval.endTime
     )
     const turnover = intervalData.reduce((sum, k) => sum + k.turnover, 0)
-    
+
     const date = new Date(interval.startTime).toISOString().split('T')[0]
     const timeLabel = getTimeLabel(interval.startTime, interval.endTime, intervalHours, interval.isCurrentInterval)
 
@@ -416,17 +424,17 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: n
 
   // 计算波动率（标准差）
   const mean = averageIntervalTurnover
-  const variance = turnoverValues.length > 0 ? 
+  const variance = turnoverValues.length > 0 ?
     turnoverValues.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / turnoverValues.length : 0
   const volatility = mean > 0 ? Math.sqrt(variance) / mean * 100 : 0 // 变异系数
 
   // 计算趋势（比较前1/3和后1/3的平均值）
   const firstThirdCount = Math.floor(turnoverValues.length / 3)
   const lastThirdCount = Math.floor(turnoverValues.length / 3)
-  
+
   let trend: 'increasing' | 'decreasing' | 'stable' = 'stable'
   let trendChangePercent = 0
-  
+
   if (firstThirdCount > 0 && lastThirdCount > 0) {
     const firstThirdAvg = turnoverValues.slice(0, firstThirdCount).reduce((a, b) => a + b, 0) / firstThirdCount
     const lastThirdAvg = turnoverValues.slice(-lastThirdCount).reduce((a, b) => a + b, 0) / lastThirdCount
@@ -465,9 +473,9 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: n
   }
 
   // 生成间隔类型描述
-  const intervalType = intervalHours === 24 ? '24小时' : 
-                      intervalHours === 4 ? '4小时' : 
-                      `${intervalHours}小时`
+  const intervalType = intervalHours === 24 ? '24小时' :
+    intervalHours === 4 ? '4小时' :
+      `${intervalHours}小时`
 
   console.log(`统计结果：最近7天总成交额 ${formatTurnover(last7DaysTotalTurnover)}, 平均间隔成交额 ${formatTurnover(averageIntervalTurnover)}`)
 
@@ -667,7 +675,6 @@ export default defineEventHandler(async (event) => {
   try {
     // 获取查询参数
     const query = getQuery(event)
-
     // 验证参数
     const schema = z.object({
       category: z.enum(['linear', 'inverse', 'spot'], {
