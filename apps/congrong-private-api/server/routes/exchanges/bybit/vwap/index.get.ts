@@ -708,9 +708,34 @@ export default defineEventHandler(async (event) => {
       // 新增参数：自定义起始时间
       startTime: z.string().optional().transform(val => {
         if (!val) return undefined
+
+        // 检查是否是相对时间格式（如 1d, 2d, 30d 等）
+        const relativeTimeMatch = val.match(/^(\d+)([dhm])$/i)
+        if (relativeTimeMatch) {
+          const [, amount, unit] = relativeTimeMatch
+          const now = Date.now()
+          const num = parseInt(amount)
+
+          if (isNaN(num) || num <= 0) {
+            throw new Error('时间数量必须是正整数')
+          }
+
+          switch (unit.toLowerCase()) {
+            case 'd': // 天
+              return now - (num * 24 * 60 * 60 * 1000)
+            case 'h': // 小时
+              return now - (num * 60 * 60 * 1000)
+            case 'm': // 分钟
+              return now - (num * 60 * 1000)
+            default:
+              throw new Error('时间单位必须是 d(天), h(小时), m(分钟)')
+          }
+        }
+
+        // 如果不是相对时间格式，尝试解析为时间戳
         const timestamp = parseInt(val)
         if (isNaN(timestamp)) {
-          throw new Error('startTime 必须是有效的时间戳')
+          throw new Error('startTime 必须是有效的时间戳或相对时间格式（如：1d, 2h, 30m）')
         }
         return timestamp
       }),
