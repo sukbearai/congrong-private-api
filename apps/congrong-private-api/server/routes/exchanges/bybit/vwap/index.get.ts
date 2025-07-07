@@ -1,11 +1,4 @@
-import type { BybitApiResponse, KlineApiResponse } from './types'
-import type {
-  InstrumentInfoItem,
-  InstrumentError,
-  KlineData,
-  VWAPData,
-  VWAPCalculation
-} from './types'
+import { BybitApiResponse, InstrumentError, InstrumentInfoItem, KlineApiResponse, KlineData, VWAPCalculation, VWAPData } from "./types"
 
 // 定义 JSON 存储 API 写入响应的类型
 interface JsonStorageWriteResponse {
@@ -91,73 +84,76 @@ const formatVWAPResultForTelegram = (data: any): string => {
   let message = `💎 *${symbol} VWAP成本价分析*\n\n`
 
   // 基础价格信息
-  message += `💰 *平均成本价*: \`${costPrice.toFixed(8)}\` USDT\n`
-  message += `🔹 *当前价格*: \`${currentPrice.toFixed(8)}\` USDT\n`
+  message += `💰 *平均成本价*: \`${costPrice.toFixed(8)}\`\n`
+  message += `🔹 *当前价格*: \`${currentPrice.toFixed(8)}\`\n`
   message += `📊 *价格偏离*: \`${deviation >= 0 ? '+' : ''}${deviation.toFixed(2)}%\` ${statusEmoji} ${statusText}\n\n`
 
   // 价格区间
   if (vwap?.highestPrice && vwap?.lowestPrice) {
-    message += `📈 *最高价*: \`${vwap.highestPrice.toFixed(8)}\` USDT\n`
-    message += `📉 *最低价*: \`${vwap.lowestPrice.toFixed(8)}\` USDT\n\n`
+    message += `📈 *最高价*: \`${vwap.highestPrice.toFixed(8)}\`\n`
+    message += `📉 *最低价*: \`${vwap.lowestPrice.toFixed(8)}\`\n\n`
   }
 
   // 交易数据
   if (vwap) {
-    message += `📊 *总成交量*: \`${vwap.totalVolume.toLocaleString()}\` ${symbol.replace('USDT', '')}\n`
-    message += `💵 *总成交额*: \`${vwap.totalTurnover.toLocaleString()}\` USDT\n\n`
+    // message += `📊 *总成交量*: \`${vwap.totalVolume.toLocaleString()}\` ${symbol.replace('USDT', '')}\n`
+    message += `💵 *总成交额*: \`${vwap.totalTurnover.toLocaleString()}\`\n\n`
   }
 
   // 7天成交额分析
   if (turnover7Days) {
-    message += `📈 *7天成交额分析*\n`
-    message += `💰 总成交额: \`${turnover7Days.last7Days.totalTurnover.toLocaleString()}\` USDT\n`
-    message += `📊 日均成交额: \`${turnover7Days.last7Days.averageDailyTurnover.toLocaleString()}\` USDT\n`
-    message += `🔄 环比变化: \`${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%\` ${trendEmoji}\n`
+    const intervalType = turnover7Days.last7Days.intervalType
+    message += `📈 *历史成交额 7d* (${intervalType}间隔)\n`
+    message += `💰 总成交额: \`${turnover7Days.last7Days.totalTurnover.toLocaleString()}\`\n`
+    message += `📊 平均${intervalType}成交额: \`${turnover7Days.last7Days.averageIntervalTurnover.toLocaleString()}\` USDT\n`
+    // message += `🔄 环比变化: \`${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%\` ${trendEmoji}\n`
     message += `📈 波动率: \`${turnover7Days.last7Days.volatility.toFixed(2)}%\`\n`
     message += `📝 趋势分析: ${turnover7Days.comparison.trendAnalysis}\n\n`
 
-    // 每日成交额 - emoji风格 + 变化百分比
-    message += `📅 *每日成交额明细*\n`
-    turnover7Days.last7Days.dailyTurnover.forEach((day, index) => {
-      const dateObj = new Date(day.date)
-      const monthDay = `${dateObj.getMonth() + 1}/${dateObj.getDate()}`
-
+    // 每个时间间隔的成交额明细
+    message += `📅 *${intervalType}成交额明细*\n`
+    turnover7Days.last7Days.intervalTurnover.forEach((interval, index) => {
       // 根据变化方向选择emoji
-      let statusEmoji = '📊' // 默认或第一天
-      if (index > 0 && day.changeFromPrevious !== undefined) {
-        if (day.changeFromPrevious > 0) {
+      let statusEmoji = '📊' // 默认或第一个间隔
+      if (index > 0 && interval.changeFromPrevious !== undefined) {
+        if (interval.changeFromPrevious > 0) {
           statusEmoji = '🟢' // 上涨
-        } else if (day.changeFromPrevious < 0) {
+        } else if (interval.changeFromPrevious < 0) {
           statusEmoji = '🔴' // 下跌
         } else {
           statusEmoji = '🟡' // 持平
         }
       }
 
-      // 变化文本 - 包含变化百分比
-      let changeText = ''
-      if (day.changePercentFromPrevious !== undefined && index > 0) {
-        const sign = day.changePercentFromPrevious >= 0 ? '+' : ''
-        const changePercent = day.changePercentFromPrevious.toFixed(1)
-
-        // 根据变化幅度选择更详细的emoji
-        let changeEmoji = ''
-        if (day.changePercentFromPrevious > 10) {
-          changeEmoji = '🚀' // 大幅上涨
-        } else if (day.changePercentFromPrevious > 0) {
-          changeEmoji = '📈' // 小幅上涨
-        } else if (day.changePercentFromPrevious < -10) {
-          changeEmoji = '💥' // 大幅下跌
-        } else if (day.changePercentFromPrevious < 0) {
-          changeEmoji = '📉' // 小幅下跌
-        } else {
-          changeEmoji = '➡️' // 持平
-        }
-
-        changeText = ` ${changeEmoji} (${sign}${changePercent}%)`
+      // 如果是当前进行的时间段，使用特殊emoji
+      if (interval.isCurrentInterval) {
+        statusEmoji = '⏰' // 当前进行中
       }
 
-      message += `${statusEmoji} ${day.dayOfWeek} ${monthDay}: \`${day.formattedTurnover}\` USDT${changeText}\n`
+      // 变化文本 - 包含变化百分比
+      let changeText = ''
+      if (interval.changePercentFromPrevious !== undefined && index > 0) {
+        const sign = interval.changePercentFromPrevious >= 0 ? '+' : ''
+        const changePercent = interval.changePercentFromPrevious.toFixed(1)
+
+        // 根据变化幅度选择更详细的emoji
+        // let changeEmoji = ''
+        // if (interval.changePercentFromPrevious > 10) {
+        //   changeEmoji = '🚀' // 大幅上涨
+        // } else if (interval.changePercentFromPrevious > 0) {
+        //   changeEmoji = '📈' // 小幅上涨
+        // } else if (interval.changePercentFromPrevious < -10) {
+        //   changeEmoji = '💥' // 大幅下跌
+        // } else if (interval.changePercentFromPrevious < 0) {
+        //   changeEmoji = '📉' // 小幅下跌
+        // } else {
+        //   changeEmoji = '➡️' // 持平
+        // }
+
+        changeText = ` (${sign}${changePercent}%)`
+      }
+
+    message += `${statusEmoji} \`${interval.timeLabel}\`: \`${interval.formattedTurnover} USDT\`${changeText}\n`
     })
 
     message += '\n'
@@ -171,9 +167,6 @@ const formatVWAPResultForTelegram = (data: any): string => {
   } else {
     message += `⚖️ *建议*: 当前价格接近成本价，市场相对平衡\n`
   }
-
-  // 添加时间戳
-  message += `\n⏰ 分析时间: ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`
 
   return message
 }
@@ -208,30 +201,34 @@ const formatMultipleResultsForTelegram = (results: any[], summary: any): string 
   return message
 }
 
-// 添加7天成交额统计的函数 - 增强版本，包含日环比变化率
-const calculate7DaysTurnoverAnalysis = (klineData: KlineData[]): {
+// 添加7天成交额统计的函数 - 支持不同时间间隔
+const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: number = 24): {
   last7Days: {
     totalTurnover: number
-    dailyTurnover: {
+    intervalTurnover: {
+      startTime: number;
+      endTime: number;
       date: string;
       turnover: number;
       formattedTurnover: string;
-      dayOfWeek: string;
+      timeLabel: string;
       changeFromPrevious?: number;
       changePercentFromPrevious?: number;
       changeDirection?: 'up' | 'down' | 'same';
+      isCurrentInterval?: boolean; // 标记是否为当前正在进行的时间段
     }[]
-    averageDailyTurnover: number
-    highestDayTurnover: number
-    lowestDayTurnover: number
+    averageIntervalTurnover: number
+    highestIntervalTurnover: number
+    lowestIntervalTurnover: number
     trend: 'increasing' | 'decreasing' | 'stable'
     changePercent: number
     volatility: number
+    intervalType: string
   }
   comparison: {
     previous7Days: {
       totalTurnover: number
-      averageDailyTurnover: number
+      averageIntervalTurnover: number
     }
     changeAmount: number
     changePercent: number
@@ -240,60 +237,150 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[]): {
 } => {
   const now = Date.now()
   const oneDayMs = 24 * 60 * 60 * 1000
+  const intervalMs = intervalHours * 60 * 60 * 1000
   const sevenDaysMs = 7 * oneDayMs
 
-  // 最近7天的时间范围
+  // 最近7天的时间范围：从现在向前推7天
   const last7DaysStart = now - sevenDaysMs
-  const last7DaysData = klineData.filter(k => k.startTime >= last7DaysStart)
+  const last7DaysData = klineData.filter(k => k.startTime >= last7DaysStart && k.startTime <= now)
 
-  // 前7天的时间范围（用于比较）
+  // 前7天的时间范围（用于比较）：从14天前到7天前
   const previous7DaysStart = now - (2 * sevenDaysMs)
   const previous7DaysEnd = last7DaysStart
   const previous7DaysData = klineData.filter(k =>
     k.startTime >= previous7DaysStart && k.startTime < previous7DaysEnd
   )
 
-  // 获取星期名称
-  const getDayOfWeek = (dateString: string): string => {
-    const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
-    return dayNames[new Date(dateString).getDay()]
+  console.log(`当前时间: ${formatDateTime(now)}`)
+  console.log(`最近7天范围: ${formatDateTime(last7DaysStart)} 到 ${formatDateTime(now)}`)
+  console.log(`K线数据范围: ${last7DaysData.length} 条数据`)
+
+  // 生成时间标签的函数
+  const getTimeLabel = (startTime: number, endTime: number, intervalHours: number, isCurrentInterval: boolean = false): string => {
+    const startDate = new Date(startTime)
+    const endDate = new Date(endTime)
+    
+    if (intervalHours === 24) {
+      // 24小时间隔：只显示月/日
+      const monthDay = `${startDate.getMonth() + 1}/${startDate.getDate()}`
+      return isCurrentInterval ? `${monthDay}*` : monthDay
+    } else if (intervalHours === 4) {
+      // 4小时间隔：显示日期和时间段
+      const monthDay = `${startDate.getMonth() + 1}/${startDate.getDate()}`
+      const startHour = startDate.getHours().toString().padStart(2, '0')
+      const endHour = endDate.getHours().toString().padStart(2, '0')
+      const timeRange = `${monthDay} ${startHour}:00-${endHour}:00`
+      return isCurrentInterval ? `${timeRange}*` : timeRange
+    } else {
+      // 其他间隔：显示完整时间
+      const formatTime = (date: Date) => {
+        const month = (date.getMonth() + 1).toString().padStart(2, '0')
+        const day = date.getDate().toString().padStart(2, '0')
+        const hour = date.getHours().toString().padStart(2, '0')
+        const minute = date.getMinutes().toString().padStart(2, '0')
+        return `${month}/${day} ${hour}:${minute}`
+      }
+      const timeRange = `${formatTime(startDate)}-${formatTime(endDate)}`
+      return isCurrentInterval ? `${timeRange}*` : timeRange
+    }
   }
 
-  // 按天分组统计最近7天
-  const dailyTurnoverMap = new Map<string, number>()
-  last7DaysData.forEach(candle => {
-    const date = new Date(candle.startTime).toISOString().split('T')[0]
-    const currentTotal = dailyTurnoverMap.get(date) || 0
-    dailyTurnoverMap.set(date, currentTotal + candle.turnover)
-  })
+  // 计算对齐到间隔边界的时间函数
+  const alignToIntervalBoundary = (timestamp: number, intervalMs: number): number => {
+    // 计算从UTC 00:00:00开始的时间偏移
+    const utcMidnight = Math.floor(timestamp / oneDayMs) * oneDayMs
+    const timeFromMidnight = timestamp - utcMidnight
+    
+    // 计算当前时间属于哪个间隔（从0开始）
+    const intervalIndex = Math.floor(timeFromMidnight / intervalMs)
+    
+    // 返回该间隔的开始时间
+    return utcMidnight + (intervalIndex * intervalMs)
+  }
 
-  // 生成最近7天的完整日期列表
-  const dailyTurnover: {
+  // 生成时间间隔数组
+  const intervals: Array<{startTime: number, endTime: number, isCurrentInterval: boolean}> = []
+  
+  // 找到最近7天范围内的所有间隔
+  // 从7天前开始，到现在为止
+  let currentIntervalStart = alignToIntervalBoundary(last7DaysStart, intervalMs)
+  
+  // 如果对齐后的时间早于7天前，则向前移动一个间隔
+  if (currentIntervalStart < last7DaysStart) {
+    currentIntervalStart += intervalMs
+  }
+
+  // 计算当前时间所在的间隔起始时间
+  const nowIntervalStart = alignToIntervalBoundary(now, intervalMs)
+
+  while (currentIntervalStart <= now) {
+    let intervalEnd: number
+    let isCurrentInterval = false
+    
+    if (currentIntervalStart === nowIntervalStart) {
+      // 这是当前正在进行的时间段，结束时间就是当前时间
+      intervalEnd = now
+      isCurrentInterval = true
+    } else {
+      // 这是已完成的时间段，结束时间是下一个间隔的开始时间
+      intervalEnd = Math.min(currentIntervalStart + intervalMs, now)
+    }
+    
+    // 只包含有意义的间隔（至少有部分时间在7天范围内）
+    if (intervalEnd > last7DaysStart && currentIntervalStart < now) {
+      intervals.push({
+        startTime: Math.max(currentIntervalStart, last7DaysStart),
+        endTime: intervalEnd,
+        isCurrentInterval
+      })
+    }
+    
+    // 如果这是当前时间段，就停止循环
+    if (isCurrentInterval) {
+      break
+    }
+    
+    currentIntervalStart += intervalMs
+  }
+
+  // 计算每个时间间隔的成交额
+  const intervalTurnover: {
+    startTime: number;
+    endTime: number;
     date: string;
     turnover: number;
     formattedTurnover: string;
-    dayOfWeek: string;
+    timeLabel: string;
     changeFromPrevious?: number;
     changePercentFromPrevious?: number;
     changeDirection?: 'up' | 'down' | 'same';
+    isCurrentInterval?: boolean;
   }[] = []
 
-  let previousDayTurnover: number | null = null
+  let previousIntervalTurnover: number | null = null
 
-  for (let i = 6; i >= 0; i--) {
-    const date = new Date(now - (i * oneDayMs)).toISOString().split('T')[0]
-    const turnover = dailyTurnoverMap.get(date) || 0
-    const dayOfWeek = getDayOfWeek(date)
+  intervals.forEach((interval, index) => {
+    // 计算该间隔内的成交额 - 使用 <= 确保包含边界数据
+    const intervalData = last7DaysData.filter(k => 
+      k.startTime >= interval.startTime && k.startTime < interval.endTime
+    )
+    const turnover = intervalData.reduce((sum, k) => sum + k.turnover, 0)
+    
+    const date = new Date(interval.startTime).toISOString().split('T')[0]
+    const timeLabel = getTimeLabel(interval.startTime, interval.endTime, intervalHours, interval.isCurrentInterval)
 
-    // 计算与前一天的变化
+    const status = interval.isCurrentInterval ? '(进行中)' : ''
+    // console.log(`${timeLabel} ${status}: ${intervalData.length} 条数据, 成交额 ${formatTurnover(turnover)}`)
+
+    // 计算与前一个间隔的变化
     let changeFromPrevious: number | undefined
     let changePercentFromPrevious: number | undefined
     let changeDirection: 'up' | 'down' | 'same' | undefined
 
-    if (previousDayTurnover !== null) {
-      changeFromPrevious = turnover - previousDayTurnover
-      changePercentFromPrevious = previousDayTurnover > 0 ?
-        (changeFromPrevious / previousDayTurnover * 100) : 0
+    if (previousIntervalTurnover !== null) {
+      changeFromPrevious = turnover - previousIntervalTurnover
+      changePercentFromPrevious = previousIntervalTurnover > 0 ?
+        (changeFromPrevious / previousIntervalTurnover * 100) : 0
 
       if (changeFromPrevious > 0) {
         changeDirection = 'up'
@@ -304,48 +391,59 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[]): {
       }
     }
 
-    dailyTurnover.push({
+    intervalTurnover.push({
+      startTime: interval.startTime,
+      endTime: interval.endTime,
       date,
       turnover,
       formattedTurnover: formatTurnover(turnover),
-      dayOfWeek,
+      timeLabel,
       changeFromPrevious,
       changePercentFromPrevious,
-      changeDirection
+      changeDirection,
+      isCurrentInterval: interval.isCurrentInterval
     })
 
-    previousDayTurnover = turnover
-  }
+    previousIntervalTurnover = turnover
+  })
 
   // 计算最近7天统计
   const last7DaysTotalTurnover = last7DaysData.reduce((sum, k) => sum + k.turnover, 0)
-  const averageDailyTurnover = last7DaysTotalTurnover / 7
-  const turnoverValues = dailyTurnover.map(d => d.turnover)
-  const highestDayTurnover = Math.max(...turnoverValues)
-  const lowestDayTurnover = Math.min(...turnoverValues)
+  const averageIntervalTurnover = intervals.length > 0 ? last7DaysTotalTurnover / intervals.length : 0
+  const turnoverValues = intervalTurnover.map(d => d.turnover)
+  const highestIntervalTurnover = turnoverValues.length > 0 ? Math.max(...turnoverValues) : 0
+  const lowestIntervalTurnover = turnoverValues.length > 0 ? Math.min(...turnoverValues) : 0
 
   // 计算波动率（标准差）
-  const mean = averageDailyTurnover
-  const variance = turnoverValues.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / turnoverValues.length
-  const volatility = Math.sqrt(variance) / mean * 100 // 变异系数
+  const mean = averageIntervalTurnover
+  const variance = turnoverValues.length > 0 ? 
+    turnoverValues.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / turnoverValues.length : 0
+  const volatility = mean > 0 ? Math.sqrt(variance) / mean * 100 : 0 // 变异系数
 
-  // 计算趋势（比较前3天和后3天的平均值）
-  const firstHalfAvg = turnoverValues.slice(0, 3).reduce((a, b) => a + b, 0) / 3
-  const secondHalfAvg = turnoverValues.slice(4, 7).reduce((a, b) => a + b, 0) / 3
-  const trendChangePercent = firstHalfAvg > 0 ? ((secondHalfAvg - firstHalfAvg) / firstHalfAvg * 100) : 0
+  // 计算趋势（比较前1/3和后1/3的平均值）
+  const firstThirdCount = Math.floor(turnoverValues.length / 3)
+  const lastThirdCount = Math.floor(turnoverValues.length / 3)
+  
+  let trend: 'increasing' | 'decreasing' | 'stable' = 'stable'
+  let trendChangePercent = 0
+  
+  if (firstThirdCount > 0 && lastThirdCount > 0) {
+    const firstThirdAvg = turnoverValues.slice(0, firstThirdCount).reduce((a, b) => a + b, 0) / firstThirdCount
+    const lastThirdAvg = turnoverValues.slice(-lastThirdCount).reduce((a, b) => a + b, 0) / lastThirdCount
+    trendChangePercent = firstThirdAvg > 0 ? ((lastThirdAvg - firstThirdAvg) / firstThirdAvg * 100) : 0
 
-  let trend: 'increasing' | 'decreasing' | 'stable'
-  if (trendChangePercent > 10) {
-    trend = 'increasing'
-  } else if (trendChangePercent < -10) {
-    trend = 'decreasing'
-  } else {
-    trend = 'stable'
+    if (trendChangePercent > 10) {
+      trend = 'increasing'
+    } else if (trendChangePercent < -10) {
+      trend = 'decreasing'
+    } else {
+      trend = 'stable'
+    }
   }
 
   // 计算前7天统计用于比较
   const previous7DaysTotalTurnover = previous7DaysData.reduce((sum, k) => sum + k.turnover, 0)
-  const previousAverageDailyTurnover = previous7DaysTotalTurnover / 7
+  const previousAverageIntervalTurnover = intervals.length > 0 ? previous7DaysTotalTurnover / intervals.length : 0
 
   // 计算环比变化
   const changeAmount = last7DaysTotalTurnover - previous7DaysTotalTurnover
@@ -366,21 +464,29 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[]): {
     trendAnalysis = '成交额显著下降，市场趋于冷清'
   }
 
+  // 生成间隔类型描述
+  const intervalType = intervalHours === 24 ? '24小时' : 
+                      intervalHours === 4 ? '4小时' : 
+                      `${intervalHours}小时`
+
+  console.log(`统计结果：最近7天总成交额 ${formatTurnover(last7DaysTotalTurnover)}, 平均间隔成交额 ${formatTurnover(averageIntervalTurnover)}`)
+
   return {
     last7Days: {
       totalTurnover: parseFloat(last7DaysTotalTurnover.toFixed(2)),
-      dailyTurnover,
-      averageDailyTurnover: parseFloat(averageDailyTurnover.toFixed(2)),
-      highestDayTurnover: parseFloat(highestDayTurnover.toFixed(2)),
-      lowestDayTurnover: parseFloat(lowestDayTurnover.toFixed(2)),
+      intervalTurnover,
+      averageIntervalTurnover: parseFloat(averageIntervalTurnover.toFixed(2)),
+      highestIntervalTurnover: parseFloat(highestIntervalTurnover.toFixed(2)),
+      lowestIntervalTurnover: parseFloat(lowestIntervalTurnover.toFixed(2)),
       trend,
       changePercent: parseFloat(trendChangePercent.toFixed(2)),
-      volatility: parseFloat(volatility.toFixed(2))
+      volatility: parseFloat(volatility.toFixed(2)),
+      intervalType
     },
     comparison: {
       previous7Days: {
         totalTurnover: parseFloat(previous7DaysTotalTurnover.toFixed(2)),
-        averageDailyTurnover: parseFloat(previousAverageDailyTurnover.toFixed(2))
+        averageIntervalTurnover: parseFloat(previousAverageIntervalTurnover.toFixed(2))
       },
       changeAmount: parseFloat(changeAmount.toFixed(2)),
       changePercent: parseFloat(changePercent.toFixed(2)),
@@ -555,6 +661,7 @@ const calculateVWAP = (klineData: KlineData[]): VWAPCalculation => {
  *   - saveData: 是否保存数据到API - 可选，默认false
  *   - sendToTelegram: 是否发送结果到Telegram - 可选，默认false
  *   - telegramChannelId: 指定Telegram频道ID - 可选，默认使用默认频道
+ *   - turnoverInterval: 成交额统计的时间间隔（小时）- 可选，默认24小时
  */
 export default defineEventHandler(async (event) => {
   try {
@@ -579,9 +686,18 @@ export default defineEventHandler(async (event) => {
       includeDetails: z.string().optional().transform(val => val === 'true'),
       saveData: z.string().optional().transform(val => val === 'true'),
       // 新增参数：是否发送到Telegram
-      sendToTelegram: z.string().optional().transform(val => val === 'true'),
+      sendToTelegram: z.string().optional().transform(val => val === 'true').default('true'),
       // 可选的Telegram频道ID
       telegramChannelId: z.string().optional(),
+      // 新增参数：成交额统计的时间间隔（小时）
+      turnoverInterval: z.string().optional().transform(val => {
+        if (!val) return 4 // 默认4小时
+        const hours = parseInt(val)
+        if (isNaN(hours) || hours <= 0 || hours > 24) {
+          throw new Error('turnoverInterval 必须是1-24之间的有效小时数')
+        }
+        return hours
+      }).default('4'),
       // 新增参数：自定义起始时间
       startTime: z.string().optional().transform(val => {
         if (!val) return undefined
@@ -619,6 +735,7 @@ export default defineEventHandler(async (event) => {
       saveData,
       sendToTelegram: shouldSendToTelegram,
       telegramChannelId,
+      turnoverInterval,
       startTime: customStartTime,
       endTime: customEndTime
     } = validationResult.data
@@ -668,7 +785,7 @@ export default defineEventHandler(async (event) => {
         const apiResponse = await response.json() as BybitApiResponse
 
         if (apiResponse.retCode !== 0) {
-          throw new Error(`Bybit API 错误: ${apiResponse.retMsg}`)
+          throw new Error(`API 错误: ${apiResponse.retMsg}`)
         }
 
         return apiResponse
@@ -697,13 +814,13 @@ export default defineEventHandler(async (event) => {
         })
 
         if (!response.ok) {
-          throw new Error(`K线数据HTTP错误: ${response.status}`)
+          throw new Error(`HTTP 错误: ${response.status}`)
         }
 
         const apiResponse = await response.json() as KlineApiResponse
 
         if (apiResponse.retCode !== 0) {
-          throw new Error(`K线数据API错误: ${apiResponse.retMsg}`)
+          throw new Error(`API 错误: ${apiResponse.retMsg}`)
         }
 
         return apiResponse.result.list || []
@@ -807,7 +924,7 @@ export default defineEventHandler(async (event) => {
       console.log(`实际时间范围: ${finalData[0]?.formattedTime} 到 ${finalData[finalData.length - 1]?.formattedTime}`)
       console.log(`目标时间范围: ${formatDateTime(targetStartTime)} 到 ${formatDateTime(targetEndTime)}`)
 
-      // 🎯 计算并打印成本价信息
+      // 计算并打印成本价信息
       if (finalData.length > 0) {
         // 计算总成交量和总成交额
         let totalVolume = 0
@@ -817,6 +934,17 @@ export default defineEventHandler(async (event) => {
           totalVolume += candle.volume
           totalTurnover += candle.turnover
         })
+
+        const averageCostPrice = totalVolume > 0 ? totalTurnover / totalVolume : 0
+        const currentPrice = finalData[finalData.length - 1].closePrice
+        const priceDeviation = averageCostPrice > 0 ? ((currentPrice - averageCostPrice) / averageCostPrice * 100) : 0
+
+        console.log(`${symbol} 成本价分析:`)
+        console.log(`- 平均成本价: ${averageCostPrice.toFixed(8)} USDT`)
+        console.log(`- 当前价格: ${currentPrice.toFixed(8)} USDT`)
+        console.log(`- 价格偏离: ${priceDeviation.toFixed(2)}%`)
+        console.log(`- 总成交量: ${totalVolume.toLocaleString()} ${symbol.replace('USDT', '')}`)
+        console.log(`- 总成交额: ${totalTurnover.toLocaleString()} USDT`)
       }
 
       return finalData
@@ -844,8 +972,8 @@ export default defineEventHandler(async (event) => {
       // 3. 计算VWAP
       const vwapCalculation = calculateVWAP(klineData)
 
-      // 4. 计算7天成交额统计
-      const turnover7Days = calculate7DaysTurnoverAnalysis(klineData)
+      // 4. 计算7天成交额统计 - 使用指定的时间间隔
+      const turnover7Days = calculate7DaysTurnoverAnalysis(klineData, turnoverInterval)
 
       // 5. 计算实际使用的时间范围
       const actualStartTime = customStartTime && customStartTime >= launchTime ? customStartTime : launchTime
@@ -868,9 +996,8 @@ export default defineEventHandler(async (event) => {
       if (saveData) {
         try {
           await saveKlineDataToAPI(symbol, klineData, vwapCalculation, interval, timeRange)
-          console.log(`💾 ${symbol} 成本价数据已保存到API`)
         } catch (error) {
-          console.warn(`⚠️ ${symbol} 数据保存失败，但不影响返回结果:`, error)
+          console.warn(`保存数据失败，但不影响主流程:`, error)
         }
       }
 
@@ -903,7 +1030,7 @@ export default defineEventHandler(async (event) => {
           vwapByPeriod: includeDetails ? vwapCalculation.vwapByPeriod : []
         },
         dataSaved: saveData,
-        // 🎯 添加成本价信息到返回结果
+        // 添加成本价信息到返回结果
         costPriceAnalysis: {
           averageCostPrice: vwapCalculation.finalVWAP,
           currentPrice: vwapCalculation.currentPrice,
@@ -917,7 +1044,7 @@ export default defineEventHandler(async (event) => {
           marketStatus: vwapCalculation.currentDeviation > 5 ? 'above_cost' :
             vwapCalculation.currentDeviation < -5 ? 'below_cost' : 'near_cost'
         },
-        // 🎯 添加7天成交额分析
+        // 添加7天成交额分析
         turnover7DaysAnalysis: turnover7Days
       }
     }
@@ -934,9 +1061,9 @@ export default defineEventHandler(async (event) => {
           telegramResult = await sendToTelegram(telegramMessage, telegramChannelId)
 
           if (telegramResult.success) {
-            console.log(`📱 ${symbols[0]} VWAP分析结果已发送到Telegram频道`)
+            console.log(`✅ ${symbols[0]} Telegram消息发送成功，消息ID: ${telegramResult.messageId}`)
           } else {
-            console.warn(`⚠️ ${symbols[0]} Telegram发送失败: ${telegramResult.error}`)
+            console.warn(`⚠️ ${symbols[0]} Telegram消息发送失败: ${telegramResult.error}`)
           }
         } catch (error) {
           console.warn(`⚠️ ${symbols[0]} Telegram发送出错:`, error)
@@ -1014,9 +1141,9 @@ export default defineEventHandler(async (event) => {
         telegramResult = await sendToTelegram(telegramMessage, telegramChannelId)
 
         if (telegramResult.success) {
-          console.log(`📱 多交易对VWAP分析结果已发送到Telegram频道`)
+          console.log(`✅ 多交易对Telegram消息发送成功，消息ID: ${telegramResult.messageId}`)
         } else {
-          console.warn(`⚠️ 多交易对Telegram发送失败: ${telegramResult.error}`)
+          console.warn(`⚠️ 多交易对Telegram消息发送失败: ${telegramResult.error}`)
         }
       } catch (error) {
         console.warn(`⚠️ 多交易对Telegram发送出错:`, error)
@@ -1041,6 +1168,7 @@ export default defineEventHandler(async (event) => {
         includeDetails,
         saveData,
         sendToTelegram: shouldSendToTelegram,
+        turnoverInterval,
         timeRange: {
           customStartTime,
           customEndTime,
