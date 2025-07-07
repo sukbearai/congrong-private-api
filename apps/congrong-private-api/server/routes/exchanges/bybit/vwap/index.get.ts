@@ -771,45 +771,6 @@ export default defineEventHandler(async (event) => {
           totalVolume += candle.volume
           totalTurnover += candle.turnover
         })
-
-        // 计算平均成本价 (VWAP)
-        const averageCostPrice = totalVolume > 0 ? totalTurnover / totalVolume : 0
-
-        // 获取其他价格信息
-        const firstPrice = finalData[0].openPrice  // 开始价格
-        const lastPrice = finalData[finalData.length - 1].closePrice  // 最新价格
-        const highestPrice = Math.max(...finalData.map(k => k.highPrice))
-        const lowestPrice = Math.min(...finalData.map(k => k.lowPrice))
-
-        // 计算价格变化
-        const priceChange = lastPrice - firstPrice
-        const priceChangePercent = firstPrice > 0 ? (priceChange / firstPrice * 100) : 0
-
-        // 计算当前价格相对成本价的偏离
-        const costPriceDeviation = averageCostPrice > 0 ? ((lastPrice - averageCostPrice) / averageCostPrice * 100) : 0
-
-        console.log(`\n🎯 ========== ${symbol} 成本价分析 ==========`)
-        console.log(`📊 数据周期: ${finalData.length} 分钟 (${formatDateTime(finalData[0].startTime)} - ${formatDateTime(finalData[finalData.length - 1].startTime)})`)
-        console.log(`💰 平均成本价 (VWAP): ${averageCostPrice.toFixed(8)} USDT`)
-        console.log(`🔸 开始价格: ${firstPrice.toFixed(8)} USDT`)
-        console.log(`🔹 最新价格: ${lastPrice.toFixed(8)} USDT`)
-        console.log(`📈 最高价格: ${highestPrice.toFixed(8)} USDT`)
-        console.log(`📉 最低价格: ${lowestPrice.toFixed(8)} USDT`)
-        console.log(`📊 总成交量: ${totalVolume.toFixed(8)} ${symbol.replace('USDT', '')}`)
-        console.log(`💵 总成交额: ${totalTurnover.toFixed(2)} USDT`)
-        console.log(`\n📊 价格变化分析:`)
-        console.log(`   期间涨跌: ${priceChange >= 0 ? '+' : ''}${priceChange.toFixed(8)} USDT (${priceChangePercent >= 0 ? '+' : ''}${priceChangePercent.toFixed(2)}%)`)
-        console.log(`   相对成本价偏离: ${costPriceDeviation >= 0 ? '+' : ''}${costPriceDeviation.toFixed(2)}% ${costPriceDeviation > 0 ? '(高于成本价)' : costPriceDeviation < 0 ? '(低于成本价)' : '(等于成本价)'}`)
-
-        if (costPriceDeviation > 5) {
-          console.log(`🚀 当前价格明显高于成本价，可能存在获利机会`)
-        } else if (costPriceDeviation < -5) {
-          console.log(`🔻 当前价格明显低于成本价，可能存在抄底机会`)
-        } else {
-          console.log(`⚖️  当前价格接近成本价，市场相对平衡`)
-        }
-
-        console.log(`============================================\n`)
       }
 
       return finalData
@@ -839,55 +800,6 @@ export default defineEventHandler(async (event) => {
 
       // 4. 计算7天成交额统计
       const turnover7Days = calculate7DaysTurnoverAnalysis(klineData)
-
-      // 🎯 打印最终成本价总结
-      console.log(`\n💎 ========== ${symbol} 最终成本价总结 ==========`)
-      console.log(`💰 VWAP成本价: ${vwapCalculation.finalVWAP} USDT`)
-      console.log(`📊 数据点数: ${vwapCalculation.periodCount} 个`)
-      console.log(`🔸 当前价格: ${vwapCalculation.currentPrice} USDT`)
-      console.log(`📊 价格偏离: ${vwapCalculation.currentDeviation}%`)
-      console.log(`📈 价格区间: ${vwapCalculation.lowestPrice} - ${vwapCalculation.highestPrice} USDT`)
-      console.log(`💵 总交易额: ${vwapCalculation.totalTurnover} USDT`)
-      console.log(`📊 总交易量: ${vwapCalculation.totalVolume} ${symbol.replace('USDT', '')}`)
-
-      // 🎯 打印7天成交额分析
-      console.log(`\n📈 ========== 最近7天成交额分析 ==========`)
-      console.log(`💰 7天总成交额: ${turnover7Days.last7Days.totalTurnover.toLocaleString()} USDT`)
-      console.log(`📊 日均成交额: ${turnover7Days.last7Days.averageDailyTurnover.toLocaleString()} USDT`)
-      console.log(`📈 最高单日: ${turnover7Days.last7Days.highestDayTurnover.toLocaleString()} USDT`)
-      console.log(`📉 最低单日: ${turnover7Days.last7Days.lowestDayTurnover.toLocaleString()} USDT`)
-      console.log(`🔄 环比变化: ${turnover7Days.comparison.changePercent >= 0 ? '+' : ''}${turnover7Days.comparison.changePercent.toFixed(2)}%`)
-      console.log(`📝 趋势分析: ${turnover7Days.comparison.trendAnalysis}`)
-      console.log(`📊 成交趋势: ${turnover7Days.last7Days.trend === 'increasing' ? '📈 上升' :
-        turnover7Days.last7Days.trend === 'decreasing' ? '📉 下降' : '➡️ 稳定'}`)
-
-      // 显示每日成交额明细（增强版本，包含日环比变化）
-      console.log(`\n📅 每日成交额明细:`)
-      turnover7Days.last7Days.dailyTurnover.forEach((day, index) => {
-        let changeInfo = ''
-        if (day.changeFromPrevious !== undefined && day.changePercentFromPrevious !== undefined) {
-          const changeIcon = day.changeDirection === 'up' ? '📈' :
-            day.changeDirection === 'down' ? '📉' : '➡️'
-          const changeSign = day.changeFromPrevious >= 0 ? '+' : ''
-          const changeAmount = formatTurnover(Math.abs(day.changeFromPrevious))
-          changeInfo = ` ${changeIcon} ${changeSign}${changeAmount} (${changeSign}${day.changePercentFromPrevious.toFixed(1)}%)`
-        }
-
-        console.log(`   ${day.date} (${day.dayOfWeek}): ${day.formattedTurnover} USDT${changeInfo}`)
-      })
-
-      // 添加波动性分析
-      console.log(`\n📊 成交额波动性分析:`)
-      console.log(`   📈 波动率: ${turnover7Days.last7Days.volatility.toFixed(2)}% (变异系数)`)
-      if (turnover7Days.last7Days.volatility > 50) {
-        console.log(`   🔥 成交额波动较大，市场活跃度变化剧烈`)
-      } else if (turnover7Days.last7Days.volatility > 25) {
-        console.log(`   ⚡ 成交额波动适中，市场有一定活跃度变化`)
-      } else {
-        console.log(`   🟢 成交额相对稳定，市场活跃度变化较小`)
-      }
-
-      console.log(`===============================================\n`)
 
       // 5. 计算实际使用的时间范围
       const actualStartTime = customStartTime && customStartTime >= launchTime ? customStartTime : launchTime
@@ -1042,38 +954,6 @@ export default defineEventHandler(async (event) => {
     // 如果所有请求都失败
     if (successful.length === 0) {
       return createErrorResponse('所有交易对数据获取失败', 500)
-    }
-
-    // 🎯 打印所有交易对的成本价汇总
-    if (successful.length > 1) {
-      console.log(`\n🌟 ========== 多交易对成本价汇总 ==========`)
-      successful.forEach((item, index) => {
-        const costPrice = item.costPriceAnalysis?.averageCostPrice || item.vwap?.finalVWAP || 0
-        const currentPrice = item.costPriceAnalysis?.currentPrice || item.vwap?.currentPrice || 0
-        const deviation = item.costPriceAnalysis?.priceDeviation || item.vwap?.currentDeviation || 0
-        const status = item.costPriceAnalysis?.marketStatus || 'unknown'
-
-        // 7天成交额信息
-        const turnover7Days = item.turnover7DaysAnalysis
-        const changePercent = turnover7Days?.comparison?.changePercent || 0
-        const trendEmoji = turnover7Days?.last7Days?.trend === 'increasing' ? '📈' :
-          turnover7Days?.last7Days?.trend === 'decreasing' ? '📉' : '➡️'
-
-        const statusEmoji = status === 'above_cost' ? '🚀' : status === 'below_cost' ? '🔻' : '⚖️'
-        const statusText = status === 'above_cost' ? '高于成本' : status === 'below_cost' ? '低于成本' : '接近成本'
-
-        console.log(`${index + 1}. ${item.symbol}:`)
-        console.log(`   💰 成本价: ${costPrice.toFixed(8)} USDT`)
-        console.log(`   🔹 当前价: ${currentPrice.toFixed(8)} USDT`)
-        console.log(`   📊 偏离度: ${deviation >= 0 ? '+' : ''}${deviation.toFixed(2)}% ${statusEmoji} ${statusText}`)
-        if (turnover7Days) {
-          console.log(`   💵 7日成交额: ${turnover7Days.last7Days.totalTurnover.toLocaleString()} USDT`)
-          console.log(`   🔄 环比变化: ${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}% ${trendEmoji}`)
-          console.log(`   📈 波动率: ${turnover7Days.last7Days.volatility.toFixed(2)}%`)
-        }
-        console.log(``)
-      })
-      console.log(`===============================================\n`)
     }
 
     // 在多个symbol的最终返回之前添加Telegram发送逻辑
