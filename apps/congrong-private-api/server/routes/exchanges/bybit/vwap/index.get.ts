@@ -84,27 +84,27 @@ const formatVWAPResultForTelegram = (data: any): string => {
   let message = `💎 *${symbol} VWAP成本价分析*\n\n`
 
   // 基础价格信息
-  message += `💰 *平均成本价*: \`${costPrice.toFixed(8)}\`\n`
-  message += `🔹 *当前价格*: \`${currentPrice.toFixed(8)}\`\n`
+  message += `💰 *平均成本价*: \`${costPrice.toFixed(8)} USDT\`\n`
+  message += `🔹 *当前价格*: \`${currentPrice.toFixed(8)} USDT\`\n`
   message += `📊 *价格偏离*: \`${deviation >= 0 ? '+' : ''}${deviation.toFixed(2)}%\` ${statusEmoji} ${statusText}\n\n`
 
   // 价格区间
   if (vwap?.highestPrice && vwap?.lowestPrice) {
-    message += `📈 *最高价*: \`${vwap.highestPrice.toFixed(8)}\`\n`
-    message += `📉 *最低价*: \`${vwap.lowestPrice.toFixed(8)}\`\n\n`
+    message += `📈 *最高价*: \`${vwap.highestPrice.toFixed(8)} USDT\`\n`
+    message += `📉 *最低价*: \`${vwap.lowestPrice.toFixed(8)} USDT\`\n\n`
   }
 
   // 交易数据
   if (vwap) {
     // message += `📊 *总成交量*: \`${vwap.totalVolume.toLocaleString()}\` ${symbol.replace('USDT', '')}\n`
-    message += `💵 *总成交额*: \`${vwap.totalTurnover.toLocaleString()}\`\n\n`
+    message += `💵 *总成交额*: \`${vwap.totalTurnover.toLocaleString()}\` USDT\n\n`
   }
 
   // 7天成交额分析
   if (turnover7Days) {
     const intervalType = turnover7Days.last7Days.intervalType
     message += `📈 *历史成交额 7d* (${intervalType}间隔)\n`
-    message += `💰 总成交额: \`${turnover7Days.last7Days.totalTurnover.toLocaleString()}\`\n`
+    message += `💰 总成交额: \`${turnover7Days.last7Days.totalTurnover.toLocaleString()}\` USDT\n`
     message += `📊 平均${intervalType}成交额: \`${turnover7Days.last7Days.averageIntervalTurnover.toLocaleString()}\` USDT\n`
     // message += `🔄 环比变化: \`${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%\` ${trendEmoji}\n`
     message += `📈 波动率: \`${turnover7Days.last7Days.volatility.toFixed(2)}%\`\n`
