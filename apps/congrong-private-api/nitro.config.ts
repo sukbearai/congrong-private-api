@@ -12,7 +12,7 @@ export default defineNitroConfig({
 
   scheduledTasks: {
     // Run `cms:update` task every minute
-    '* * * * *': ['ol:alarm','market:fluctuation','funding:rate','account:ratio'],
+    '* * * * *': ['ol:alarm','market:fluctuation','market:announcement','funding:rate','account:ratio'],
   },
 
   routeRules: {
