@@ -68,17 +68,22 @@ export default defineTask({
 
       const isFirstRun = historyRecords.length === 0
 
-      if (newItems.length === 0 || isFirstRun) {
-        // 第一次运行不发送消息，只记录
-        const newHistory: AnnouncementHistoryRecord[] = newItems.map(item => ({
+      if (isFirstRun) {
+        // 首次运行，全部公告都记录，不发送通知
+        const allHistory: AnnouncementHistoryRecord[] = data.result.list.map(item => ({
           url: item.url,
           publishTime: item.publishTime,
           notifiedAt: Date.now(),
         }))
-        historyRecords.push(...newHistory)
+        historyRecords.push(...allHistory)
         historyRecords = cleanExpiredAnnouncementRecords(historyRecords)
         await storage.setItem(historyKey, historyRecords)
-        return { result: 'ok', message: isFirstRun ? '首次运行，仅记录公告，不发送通知' : '无新公告' }
+        return { result: 'ok', message: '首次运行，仅记录公告，不发送通知' }
+      }
+
+      if (newItems.length === 0) {
+        // 没有新公告
+        return { result: 'ok', message: '无新公告' }
       }
 
       // 构建消息
