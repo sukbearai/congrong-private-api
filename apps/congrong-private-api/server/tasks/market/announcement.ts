@@ -88,9 +88,8 @@ export default defineTask({
 
       // 构建消息
       let message = `📢 Bybit 新币公告监控\n⏰ ${formatDateTime(Date.now())}\n\n`
-      for (const item of newItems) {
-        message += `【${item.type.title}】${item.title}\n${item.description}\n🔗 [查看公告](${item.url})\n🕒 ${formatDateTime(item.publishTime)}\n\n`
-      }
+      const latestItem = newItems[0]
+      message += `【${latestItem.type.title}】${latestItem.title}\n${latestItem.description}\n🔗 [查看公告](${latestItem.url})\n🕒 ${formatDateTime(latestItem.publishTime)}\n\n`
 
       // 发送到Telegram
       await bot.api.sendMessage(telegramChannelId, message, { parse_mode: 'Markdown' })
