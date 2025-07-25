@@ -61,9 +61,12 @@ export default defineTask({
       if (data.retCode !== 0) throw new Error(`Bybit API 错误: ${data.retMsg}`)
       if (!data.result.list || data.result.list.length === 0) return { result: 'ok', message: '无公告' }
 
-      // 过滤出未通知过的新公告
+      // 过滤出未通知过的新公告，且只推送最近1天发布的公告
+      const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000
       const newItems = data.result.list.filter(item => {
-        return !historyRecords.some(r => r.url === item.url && r.publishTime === item.publishTime)
+        const isNew = !historyRecords.some(r => r.url === item.url && r.publishTime === item.publishTime)
+        const isRecent = item.publishTime > oneDayAgo
+        return isNew && isRecent
       })
 
       const isFirstRun = historyRecords.length === 0
