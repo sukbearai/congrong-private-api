@@ -1,0 +1,12 @@
+
+- **`apps`**: Contains the applications.
+  - **`congrong-private-api`**: The backend application (Nitro/Cloudflare Worker).
+  - **`congrong-private-wx`**: The frontend application (uni-app for WeChat mini-program).
+- **`packages`**: Contains reusable packages.
+  - **`@x-dev-uni/logger`**: A logging utility.
+  - **`@x-dev-uni/preset`**: An `unocss` preset.
+  - **`@x-dev-uni/ui`**: A Vue 3 component library.
+  - **`@x-dev-uni/utils`**: A utility library.
+  - **`x-dev-uni`**: A meta-package that combines the other packages.
+- **`docs`**: Contains the documentation.
+- **`examples`**: Contains example projects.
