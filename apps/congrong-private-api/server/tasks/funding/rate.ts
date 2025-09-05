@@ -3,6 +3,12 @@ import type {
   OpenInterestError
 } from '../../routes/exchanges/bybit/openInterest/types'
 import { createHistoryManager, buildFingerprint } from '../../utils/historyManager'
+import { alertThresholds, getRetention, getDuplicateLookback } from '../../config/alertThresholds'
+import { getTelegramChannel } from '../../utils/telegram'
+import { fetchWithRetry } from '../../utils/fetchWithRetry'
+import { buildTaskResult } from '../../utils/taskResult'
+import { buildHeader, appendEntry, assemble, splitMessage } from '../../utils/alerts/message'
+import { filterDuplicates } from '../../utils/alerts/dedupe'
 
 // 定义 JSON 存储 API 读取响应的类型
 interface JsonStorageReadResponse {
@@ -282,8 +288,10 @@ export default defineTask({
       const category = 'linear'
 
       // 配置监控参数
-      const windowMinutes = 2 // 时间窗口：2分钟
-      const fundingRateThreshold = 0.003 // 0.3% 的资金费率变化阈值
+  const windowMinutes = 2
+  const fundingRateThreshold = alertThresholds.fundingRateWindowChange
+  const taskName = 'funding:rate'
+  const channelId = getTelegramChannel(taskName)
 
       console.log(`🚀 资金费率监控任务开始 - 监控${symbols.length}个币种, 时间窗口${windowMinutes}分钟, 阈值${fundingRateThreshold * 100}%`)
 
@@ -295,7 +303,7 @@ export default defineTask({
       const historyManager = createHistoryManager<FundingRateHistoryRecord>({
         storage: useStorage('db'),
         key: 'telegram:funding_rate_history',
-        retentionMs: 2 * 60 * 60 * 1000,
+        retentionMs: getRetention('shortWindow'),
         // 指纹：symbol + windowMinutes + 下次结算时间(小时粒度) + notifiedAt（保证唯一，重复过滤走自定义逻辑）
         getFingerprint: (r) => buildFingerprint([
           r.symbol,
@@ -336,12 +344,7 @@ export default defineTask({
           const url = `${bybitApiUrl}/v5/market/tickers?${params.toString()}`
 
           // 发送请求到Bybit API
-          const response = await fetch(url, {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-          })
+          const response = await fetchWithRetry(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } }, { retries: 2, timeoutMs: 7000 })
 
           // 检查HTTP响应状态
           if (!response.ok) {
@@ -437,12 +440,7 @@ export default defineTask({
 
       // 如果所有请求都失败
       if (successful.length === 0) {
-        const executionTime = Date.now() - startTime
-        console.log(`所有数据获取失败，任务结束 (${executionTime}ms)`)
-        return {
-          result: 'error',
-          executionTimeMs: executionTime
-        }
+        return buildTaskResult({ startTime, result: 'error', counts: { processed: symbols.length, failed: failed.length }, message: '全部获取失败' })
       }
 
       // 简化过滤逻辑 - 只检查1%阈值
@@ -483,16 +481,7 @@ export default defineTask({
 
       // 如果没有资金费率变化超过阈值
       if (filteredData.length === 0) {
-        const executionTime = Date.now() - startTime
-        console.log(`📋 任务完成 - 无需通知 (${executionTime}ms)`)
-        return {
-          result: 'ok',
-          processed: symbols.length,
-          successful: successful.length,
-          failed: failed.length,
-          message: `没有超过阈值的${windowMinutes}分钟资金费率变化，未发送消息`,
-          executionTimeMs: executionTime
-        }
+        return buildTaskResult({ startTime, result: 'ok', counts: { processed: symbols.length, successful: successful.length, failed: failed.length }, message: `没有超过阈值的${windowMinutes}分钟资金费率变化，未发送消息` })
       }
 
       // 简化重复检测（仍旧基于窗口变化阈值 diff）
@@ -511,42 +500,30 @@ export default defineTask({
 
       // 如果没有新的警报数据
       if (newAlerts.length === 0) {
-        const executionTime = Date.now() - startTime
-        console.log(`📋 任务完成 - 重复数据过滤 (${executionTime}ms)`)
-        return {
-          result: 'ok',
-          processed: symbols.length,
-          successful: successful.length,
-          failed: failed.length,
-          filtered: filteredData.length,
-          duplicates: filteredData.length,
-          message: '检测到重复数据，未发送消息',
-          executionTimeMs: executionTime
-        }
+        return buildTaskResult({ startTime, result: 'ok', counts: { processed: symbols.length, successful: successful.length, failed: failed.length, filtered: filteredData.length, duplicates: filteredData.length }, message: '检测到重复数据，未发送消息' })
       }
 
       // 简化消息构建
-      let message = `💰 资金费率监控报告 (${windowMinutes}分钟窗口)\n⏰ ${formatCurrentTime()}\n\n`
+      // 二次软去重（近似变化幅度合并）
+      const { fresh: finalAlerts, duplicates: softDup } = filterDuplicates(newAlerts, a => ({
+        symbol: a.symbol,
+        direction: a.windowAnalysis && a.windowAnalysis.changeRate > 0 ? 'up' : 'down',
+        value: parseFloat(String(a.windowAnalysis?.changeRate || 0)),
+        timestamp: Date.now(),
+      }), [], { lookbackMs: 15 * 60 * 1000, toleranceAbs: fundingRateThreshold / 4, directionSensitive: true })
 
-      newAlerts.forEach((item: ProcessedFundingRateData) => {
-        if (!item.windowAnalysis) return
-
+      const lines: string[] = []
+      lines.push(buildHeader(`💰 资金费率监控 (${windowMinutes}分钟窗口)`))
+      for (const item of finalAlerts) {
+        if (!item.windowAnalysis) continue
         const analysis = item.windowAnalysis
         const changeIcon = analysis.changeRate > 0 ? '📈' : '📉'
         const fundingRateIcon = item.fundingRatePercent > 0 ? '🔴' : '🟢'
-
-        message += `${changeIcon} ${item.symbol} ${fundingRateIcon}\n`
-        message += `   当前费率: ${item.fundingRatePercent.toFixed(4)}%\n`
-        message += `   ${windowMinutes}分钟前: ${(analysis.oldestRate * 100).toFixed(4)}%\n`
-        message += `   变化: ${analysis.changeRate >= 0 ? '+' : ''}${(analysis.changeRate * 100).toFixed(4)}%\n`
-        message += `   下次结算: ${item.formattedNextFundingTime}\n`
-        message += `   价格: $${parseFloat(item.lastPrice).toLocaleString()}\n\n`
-      })
-
-      console.log(`📤 发送Telegram消息 (${message.length}字符)`)
-
-      // 发送消息到 Telegram
-      await bot.api.sendMessage('-1002663808019', message)
+        appendEntry(lines, `${changeIcon} ${item.symbol} ${fundingRateIcon}\n  当前: ${item.fundingRatePercent.toFixed(4)}%\n  ${windowMinutes}分钟前: ${(analysis.oldestRate * 100).toFixed(4)}%\n  变化: ${analysis.changeRate >= 0 ? '+' : ''}${(analysis.changeRate * 100).toFixed(4)}%\n  下次结算: ${item.formattedNextFundingTime}`)
+      }
+      const assembled = assemble(lines)
+      const parts = splitMessage(assembled)
+      for (const p of parts) await bot.api.sendMessage(channelId, p)
       console.log(`✅ 消息发送成功`)
 
       // 记录新的通知历史并写入 HistoryManager
@@ -583,35 +560,20 @@ export default defineTask({
       console.log(`🎉 任务完成: 监控${symbols.length}个, 通知${newAlerts.length}个, 用时${executionTime}ms`)
       console.log(`📊 最终数据: 时间序列${timeSeriesData.length}条, 历史记录${historyRecordsAfterPersist.length}条`)
 
-      return {
-        result: 'ok',
-        processed: symbols.length,
-        successful: successful.length,
-        failed: failed.length,
-        filtered: filteredData.length,
-        newAlerts: newAlerts.length,
-        duplicates: filteredData.length - newAlerts.length,
-        historyRecords: historyRecordsAfterPersist.length,
-        timeSeriesRecords: timeSeriesData.length,
-        windowMinutes,
-        executionTimeMs: executionTime
-      }
-    }
-    catch (error) {
+  return buildTaskResult({ startTime, result: 'ok', counts: { processed: symbols.length, successful: successful.length, failed: failed.length, filtered: filteredData.length, newAlerts: finalAlerts.length, duplicates: (filteredData.length - newAlerts.length) + softDup.length, historyRecords: historyRecordsAfterPersist.length, timeSeriesRecords: timeSeriesData.length }, meta: { windowMinutes } })
+  }
+  catch (error) {
       const executionTime = Date.now() - startTime
       console.error(`💥 资金费率监控任务失败: ${error instanceof Error ? error.message : '未知错误'} (${executionTime}ms)`)
 
       try {
-        await bot.api.sendMessage('-1002663808019', `❌ 资金费率监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
+    const channel = getTelegramChannel('funding:rate')
+    await bot.api.sendMessage(channel, `❌ 资金费率监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
       } catch (botError) {
         console.error('❌ 发送错误消息失败:', botError)
       }
 
-      return {
-        result: 'error',
-        error: error instanceof Error ? error.message : '未知错误',
-        executionTimeMs: executionTime
-      }
+  return buildTaskResult({ startTime, result: 'error', error: error instanceof Error ? error.message : '未知错误', message: '任务失败' })
     }
   },
 })

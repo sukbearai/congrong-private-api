@@ -5,6 +5,12 @@ import type {
   OpenInterestError 
 } from '../../routes/exchanges/bybit/openInterest/types'
 import { createHistoryManager } from '../../utils/historyManager'
+import { alertThresholds, getRetention } from '../../config/alertThresholds'
+import { getTelegramChannel } from '../../utils/telegram'
+import { fetchWithRetry } from '../../utils/fetchWithRetry'
+import { buildTaskResult } from '../../utils/taskResult'
+import { buildHeader, appendEntry, assemble, splitMessage } from '../../utils/alerts/message'
+import { filterDuplicates } from '../../utils/alerts/dedupe'
 
 interface AlarmHistoryRecord {
   symbol: string
@@ -23,7 +29,7 @@ export default defineTask({
       const category = 'linear'
       const intervalTime = '5min'
       const monitoringInterval = 15
-      const openInterestThreshold = 5
+  const openInterestThreshold = alertThresholds.openInterestChangePercent
       const intervalMinutes = parseInt(intervalTime.replace('min', ''))
       const limit = Math.ceil(monitoringInterval / intervalMinutes) + 1
 
@@ -36,8 +42,8 @@ export default defineTask({
       const historyManager = createHistoryManager<AlarmHistoryRecord>({
         storage,
         key: historyKey,
-        retentionMs: 2 * 60 * 60 * 1000,
-        getFingerprint: r => `${r.symbol}_${r.timestamp}_${Math.floor(r.openInterest)}`,
+        retentionMs: getRetention('shortWindow'),
+        getFingerprint: r => `${r.symbol}_${r.timestamp}_${Math.round(r.openInterest)}`,
       })
 
       const requestQueue = new RequestQueue({ maxRandomDelay: 5000, minDelay: 1000 })
@@ -46,9 +52,9 @@ export default defineTask({
         return await requestQueue.add(async () => {
           const params = new URLSearchParams({ category, symbol, intervalTime, limit: limit.toString() })
           const url = `${bybitApiUrl}/v5/market/open-interest?${params.toString()}`
-          const response = await fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } })
+          const response = await fetchWithRetry(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } }, { retries: 2, timeoutMs: 7000 })
           if (!response.ok) throw new Error(`HTTP 错误: ${response.status}`)
-            const apiResponse = await response.json() as BybitApiResponse
+          const apiResponse = await response.json() as BybitApiResponse
           if (apiResponse.retCode !== 0) throw new Error(`Bybit API 错误: ${apiResponse.retMsg}`)
           if (!apiResponse.result.list || apiResponse.result.list.length === 0) throw new Error('没有可用数据')
           const latestItem = apiResponse.result.list[0]
@@ -89,16 +95,17 @@ export default defineTask({
         }
       }
       console.log(`📊 获取结果: 成功${successful.length}个, 失败${failed.length}个`)
-      if (successful.length === 0 || failed.length > 0) {
-        const executionTime = Date.now() - startTime
-        return { result: 'error', executionTimeMs: executionTime }
+      let status: 'ok' | 'partial' | 'error' = 'ok'
+      if (successful.length === 0) status = 'error'
+      else if (failed.length > 0) status = 'partial'
+      if (status === 'error') {
+        return buildTaskResult({ startTime, result: 'error', counts: { processed: symbols.length, failed: failed.length }, message: '全部失败' })
       }
 
       const filteredData = successful.filter(i => Math.abs(i.latest.changeRate) > openInterestThreshold)
       console.log(`🔔 需要通知: ${filteredData.length}个币种`)
       if (!filteredData.length) {
-        const executionTime = Date.now() - startTime
-        return { result: 'ok', processed: symbols.length, successful: successful.length, failed: failed.length, message: '没有超过阈值的变化，未发送消息', executionTimeMs: executionTime }
+        return buildTaskResult({ startTime, result: status, counts: { processed: symbols.length, successful: successful.length, failed: failed.length }, message: '没有超过阈值的变化' })
       }
 
       const { newInputs: newAlerts, duplicateInputs, newRecords } = await historyManager.filterNew(filteredData, item => ({
@@ -110,32 +117,38 @@ export default defineTask({
       }))
       console.log(`🔍 重复过滤: 原始 ${filteredData.length} -> 新 ${newAlerts.length} / 重复 ${duplicateInputs.length}`)
       if (!newAlerts.length) {
-        const executionTime = Date.now() - startTime
-        return { result: 'ok', processed: symbols.length, successful: successful.length, failed: failed.length, filtered: filteredData.length, duplicates: duplicateInputs.length, message: '检测到重复数据，未发送消息', executionTimeMs: executionTime }
+        return buildTaskResult({ startTime, result: status, counts: { processed: symbols.length, successful: successful.length, failed: failed.length, filtered: filteredData.length, duplicates: duplicateInputs.length }, message: '重复数据' })
       }
+      // 进一步细小变化去重（方向+数值容差）：避免短期内多次触发近似同幅度变化
+      const { fresh: finalAlerts, duplicates: softDup } = filterDuplicates(newAlerts, a => ({
+        symbol: a.symbol,
+        direction: a.latest.changeRate > 0 ? 'up' : a.latest.changeRate < 0 ? 'down' : 'flat',
+        value: parseFloat(a.latest.changeRate.toFixed(2)),
+        timestamp: a.latest.timestampMs,
+      }), [], { lookbackMs: 10 * 60 * 1000, toleranceAbs: 0.05, directionSensitive: true })
 
-      let message = `📊 未平仓合约监控报告 (${monitoringInterval}分钟变化)\n⏰ ${formatCurrentTime()}\n\n`
-      for (const a of newAlerts) {
+      let lines: string[] = []
+      lines.push(buildHeader(`📊 未平仓合约监控 (${monitoringInterval}分钟变化)`))
+      for (const a of finalAlerts) {
         const changeIcon = a.latest.changeRate > 0 ? '📈' : a.latest.changeRate < 0 ? '📉' : '➡️'
-        message += `${changeIcon} ${a.symbol}\n`
-        message += `   持仓: ${a.latest.openInterestFloat.toLocaleString()}\n`
-        message += `   变化: ${a.latest.changeRateFormatted}\n`
-        message += `   时间: ${a.latest.formattedTime}\n\n`
+        appendEntry(lines, `${changeIcon} ${a.symbol}\n  持仓: ${a.latest.openInterestFloat.toLocaleString()}\n  变化: ${a.latest.changeRateFormatted}\n  时间: ${a.latest.formattedTime}`)
       }
-      await bot.api.sendMessage('-1002663808019', message)
+      const assembled = assemble(lines)
+      const parts = splitMessage(assembled)
+      for (const part of parts) {
+        await bot.api.sendMessage(getTelegramChannel('ol:alarm'), part)
+      }
       console.log('✅ 消息发送成功')
 
       if (newRecords.length) await historyManager.persist()
       const historyCount = historyManager.getAll().length
       console.log(`💾 历史记录已更新: ${historyCount}条`)
 
-      const executionTime = Date.now() - startTime
-      return { result: 'ok', processed: symbols.length, successful: successful.length, failed: failed.length, filtered: filteredData.length, newAlerts: newAlerts.length, duplicates: duplicateInputs.length, historyRecords: historyCount, executionTimeMs: executionTime }
+  return buildTaskResult({ startTime, result: status, counts: { processed: symbols.length, successful: successful.length, failed: failed.length, filtered: filteredData.length, newAlerts: newAlerts.length, duplicates: duplicateInputs.length + softDup.length, historyRecords: historyCount }, message: '' })
     } catch (error) {
-      const executionTime = Date.now() - startTime
-      console.error(`💥 未平仓合约监控任务失败: ${error instanceof Error ? error.message : '未知错误'} (${executionTime}ms)`)
-      try { await bot.api.sendMessage('-1002663808019', `❌ 未平仓合约监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`) } catch {}
-      return { result: 'error', error: error instanceof Error ? error.message : '未知错误', executionTimeMs: executionTime }
+  console.error(`💥 未平仓合约监控任务失败: ${error instanceof Error ? error.message : '未知错误'}`)
+  try { await bot.api.sendMessage(getTelegramChannel('ol:alarm'), `❌ 未平仓合约监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`) } catch {}
+  return buildTaskResult({ startTime, result: 'error', error: error instanceof Error ? error.message : '未知错误', message: '任务失败' })
     }
   }
 })

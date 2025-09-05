@@ -43,6 +43,12 @@ interface MonitorResult {
 
 // 定义历史记录接口
 import { createHistoryManager, buildFingerprint } from '../../utils/historyManager'
+import { alertThresholds, getRetention } from '../../config/alertThresholds'
+import { getTelegramChannel } from '../../utils/telegram'
+import { fetchWithRetry } from '../../utils/fetchWithRetry'
+import { buildTaskResult } from '../../utils/taskResult'
+import { buildHeader, appendEntry, assemble, splitMessage } from '../../utils/alerts/message'
+import { filterDuplicates } from '../../utils/alerts/dedupe'
 
 interface FluctuationHistoryRecord {
   symbol: string
@@ -57,8 +63,9 @@ function isDuplicateWithRecent(currentChangeRate: number, recent?: FluctuationHi
   const currentDirection = currentChangeRate >= 0 ? 'up' : 'down'
   const recentDirection = recent.changeRate >= 0 ? 'up' : 'down'
   if (currentDirection !== recentDirection) return false
+  const tolerance = alertThresholds.fluctuationDuplicateTolerancePercent
   const rateChange = Math.abs(Math.abs(currentChangeRate) - Math.abs(recent.changeRate))
-  return rateChange <= 2 // 2% 内视为重复
+  return rateChange <= tolerance
 }
 
 export default defineTask({
@@ -91,7 +98,7 @@ export default defineTask({
       const manager = createHistoryManager<FluctuationHistoryRecord>({
         storage,
         key: historyKey,
-        retentionMs: 2 * 60 * 60 * 1000, // 2小时
+        retentionMs: getRetention('shortWindow'),
         getFingerprint: r => buildFingerprint([r.symbol, r.timestamp, Math.round(r.changeRate * 100) / 100]),
       })
       await manager.load()
@@ -127,12 +134,7 @@ export default defineTask({
           const url = `${bybitApiUrl}/v5/market/kline?${params.toString()}`
 
           // 发送请求到Bybit API
-          const response = await fetch(url, {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-          })
+          const response = await fetchWithRetry(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } }, { retries: 2, timeoutMs: 7000 })
 
           // 检查HTTP响应状态
           if (!response.ok) {
@@ -280,26 +282,8 @@ export default defineTask({
       console.log(`🔔 需要通知: ${notifyResults.length}个币种`)
 
   // 如果没有需要通知的变化
-  if (notifyResults.length === 0) {
-        const executionTime = Date.now() - startTime
-        console.log(`📋 任务完成 - 无需通知 (${executionTime}ms)`)
-        
-        return {
-          result: 'ok',
-          monitored: monitorConfigs.length,
-          successful: successfulResults.length,
-          failed: failedResults.length,
-          message: '所有币种价格变化均不显著，未发送通知',
-          executionTimeMs: executionTime,
-          details: monitorResults.map(r => ({
-            symbol: r.symbol,
-            currentPrice: r.data.currentPrice || 0,
-            changeRate: r.data.changeRate || 0,
-            threshold: monitorConfigs.find(c => c.symbol === r.symbol)?.priceChangeThreshold || 0,
-            shouldNotify: r.shouldNotify,
-            error: r.error
-          }))
-        }
+      if (notifyResults.length === 0) {
+        return buildTaskResult({ startTime, result: 'ok', counts: { processed: monitorConfigs.length, successful: successfulResults.length, failed: failedResults.length }, message: '所有币种价格变化均不显著，未发送通知', meta: { details: monitorResults.map(r => ({ symbol: r.symbol, currentPrice: r.data.currentPrice || 0, changeRate: r.data.changeRate || 0, threshold: monitorConfigs.find(c => c.symbol === r.symbol)?.priceChangeThreshold || 0, shouldNotify: r.shouldNotify, error: r.error })) } })
       }
 
       // 只有当有需要通知的变化时，才获取历史记录
@@ -321,19 +305,7 @@ export default defineTask({
 
       // 如果没有新的警报数据，不发送消息
       if (newAlerts.length === 0) {
-        const executionTime = Date.now() - startTime
-        console.log(`📋 任务完成 - 重复数据过滤 (${executionTime}ms)`)
-        
-        return { 
-          result: 'ok', 
-          monitored: monitorConfigs.length,
-          successful: successfulResults.length,
-          failed: failedResults.length,
-          filtered: notifyResults.length,
-          duplicates: notifyResults.length,
-          executionTimeMs: executionTime,
-          message: '检测到重复波动数据，未发送消息'
-        }
+        return buildTaskResult({ startTime, result: 'ok', counts: { processed: monitorConfigs.length, successful: successfulResults.length, failed: failedResults.length, filtered: notifyResults.length, duplicates: notifyResults.length }, message: '检测到重复波动数据，未发送消息' })
       }
 
       const significantResults = newAlerts.filter(result => result.isSignificantChange)
@@ -342,12 +314,21 @@ export default defineTask({
       console.log(`🚨 通知分类: 重大异动${significantResults.length}个, 一般变化${normalResults.length}个`)
 
       // 构建消息
-      let message = `📊 多币种价格波动监控\n⏰ ${formatCurrentTime()}\n\n`
+      // 二次软去重
+      const { fresh: finalAlerts, duplicates: softDup } = filterDuplicates(newAlerts, a => ({
+        symbol: a.symbol,
+        direction: a.data.changeRate > 0 ? 'up' : a.data.changeRate < 0 ? 'down' : 'flat',
+        value: parseFloat(a.data.changeRate.toFixed(2)),
+        timestamp: a.data.timestamp,
+      }), [], { lookbackMs: 10 * 60 * 1000, toleranceAbs: alertThresholds.fluctuationDuplicateTolerancePercent / 2, directionSensitive: true })
+
+      let lines: string[] = []
+      lines.push(buildHeader('📊 多币种价格波动监控'))
 
       // 重大异动警报 - 优先显示
       if (significantResults.length > 0) {
-        message += `🚨 重大异动警报 🚨\n\n`
-        
+        appendEntry(lines, '🚨 重大异动警报 🚨')
+
         for (const result of significantResults) {
           const config = monitorConfigs.find(c => c.symbol === result.symbol)!
           const data = result.data
@@ -355,15 +336,7 @@ export default defineTask({
           const trendIcon = data.changeRate > 0 ? '📈' : '📉'
           const monitorPeriod = config.monitorPeriodMinutes || 5
           
-          message += `${alertIcon} ${config.displayName} 重大异动 ${alertIcon}\n`
-          message += `${trendIcon} ${data.symbol}\n`
-          message += `💰 当前价格: $${data.currentPrice.toLocaleString()}\n`
-          message += `📊 ${monitorPeriod}分钟前价格: $${data.previousPrice.toLocaleString()}\n`
-          message += `📊 ${monitorPeriod}分钟变化: ${data.changeRateFormatted}\n`
-          message += `📊 ${monitorPeriod}分钟VWAP: ${data.averagePriceFormatted}\n`
-          message += `📈 ${monitorPeriod}分钟最高: $${data.highPrice.toLocaleString()}\n`
-          message += `📉 ${monitorPeriod}分钟最低: $${data.lowPrice.toLocaleString()}\n`
-          message += `⏰ 时间: ${data.formattedTime}\n\n`
+    appendEntry(lines, `${alertIcon} ${config.displayName} ${data.symbol} 重大异动 ${alertIcon}\n  ${trendIcon} 变化: ${data.changeRateFormatted}\n  当前: $${data.currentPrice.toLocaleString()}  ${monitorPeriod}分钟前: $${data.previousPrice.toLocaleString()}\n  VWAP: ${data.averagePriceFormatted} 高: $${data.highPrice.toLocaleString()} 低: $${data.lowPrice.toLocaleString()}\n  时间: ${data.formattedTime}`)
         }
       }
 
@@ -375,28 +348,17 @@ export default defineTask({
           const changeIcon = data.changeRate > 0 ? '📈' : '📉'
           const monitorPeriod = config.monitorPeriodMinutes || 5
           
-          message += `${changeIcon} ${config.displayName} (${data.symbol})\n`
-          message += `💰 价格: $${data.currentPrice.toLocaleString()}\n`
-          message += `📊 ${monitorPeriod}分钟前价格: $${data.previousPrice.toLocaleString()}\n`
-          message += `📊 ${monitorPeriod}分钟变化: ${data.changeRateFormatted}\n`
-          message += `📊 ${monitorPeriod}分钟VWAP: ${data.averagePriceFormatted}\n`
-          message += `⏰ ${data.formattedTime}\n\n`
+          appendEntry(lines, `${changeIcon} ${config.displayName} (${data.symbol})\n  变化: ${data.changeRateFormatted} 当前: $${data.currentPrice.toLocaleString()}  ${monitorPeriod}分钟前: $${data.previousPrice.toLocaleString()}  VWAP: ${data.averagePriceFormatted}\n  时间: ${data.formattedTime}`)
         }
       }
 
       // 添加失败信息（如果有）
       if (failedResults.length > 0) {
-        message += `⚠️ 获取失败的币种:\n`
-        failedResults.forEach(result => {
-          message += `❌ ${result.symbol}: ${result.error}\n`
-        })
-        message += `\n`
+        appendEntry(lines, `⚠️ 获取失败: ${failedResults.map(r => r.symbol).join(', ')}`)
       }
-
-      console.log(`📤 发送Telegram消息 (${message.length}字符)`)
-      
-      // 发送消息到 Telegram
-      await bot.api.sendMessage('-1002663808019', message)
+      const assembled = assemble(lines)
+      const parts = splitMessage(assembled)
+      for (const p of parts) await bot.api.sendMessage(getTelegramChannel('market:fluctuation'), p)
       console.log(`✅ 消息发送成功`)
 
       // 新记录加入 manager
@@ -414,31 +376,7 @@ export default defineTask({
 
       console.log(`🎉 任务完成: 监控${monitorConfigs.length}个, 通知${newAlerts.length}个, 用时${executionTime}ms`)
 
-      return {
-        result: 'ok',
-        monitored: monitorConfigs.length,
-        successful: successfulResults.length,
-        failed: failedResults.length,
-        notified: newAlerts.length,
-        duplicates: notifyResults.length - newAlerts.length,
-        significantChanges: significantResults.length,
-        normalChanges: normalResults.length,
-  historyRecords: manager.getAll().length,
-        executionTimeMs: executionTime,
-        details: monitorResults.map(r => ({
-          symbol: r.symbol,
-          currentPrice: r.data.currentPrice || 0,
-          changeRate: r.data.changeRate || 0,
-          changeAmount: r.data.changeAmount || 0,
-          volume: r.data.volume || 0,
-          turnover: r.data.turnover || 0,
-          averagePrice: r.data.averagePrice || 0,
-          monitorPeriod: monitorConfigs.find(c => c.symbol === r.symbol)?.monitorPeriodMinutes || 5,
-          shouldNotify: r.shouldNotify,
-          isSignificantChange: r.isSignificantChange,
-          error: r.error
-        }))
-      }
+  return buildTaskResult({ startTime, result: 'ok', counts: { processed: monitorConfigs.length, successful: successfulResults.length, failed: failedResults.length, newAlerts: finalAlerts.length, duplicates: (notifyResults.length - newAlerts.length) + softDup.length, historyRecords: manager.getAll().length }, meta: { significantChanges: significantResults.length, normalChanges: normalResults.length } })
 
     } catch (error) {
       const executionTime = Date.now() - startTime
@@ -446,16 +384,12 @@ export default defineTask({
       console.error(`💥 任务失败: ${error instanceof Error ? error.message : '未知错误'} (${executionTime}ms)`)
       
       try {
-        await bot.api.sendMessage('-1002663808019', `❌ 多币种价格监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
+        await bot.api.sendMessage(getTelegramChannel('market:fluctuation'), `❌ 多币种价格监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
       } catch (botError) {
         console.error(`❌ 发送错误消息失败:`, botError)
       }
 
-      return { 
-        result: 'error',
-        error: error instanceof Error ? error.message : '未知错误',
-        executionTimeMs: executionTime
-      }
+  return buildTaskResult({ startTime, result: 'error', error: error instanceof Error ? error.message : '未知错误', message: '任务失败' })
     }
   },
 })

@@ -1,5 +1,11 @@
 import type { OpenInterestError } from '../../routes/exchanges/bybit/openInterest/types'
 import { createHistoryManager, buildFingerprint } from '../../utils/historyManager'
+import { alertThresholds, getRetention } from '../../config/alertThresholds'
+import { getTelegramChannel } from '../../utils/telegram'
+import { fetchWithRetry } from '../../utils/fetchWithRetry'
+import { buildTaskResult } from '../../utils/taskResult'
+import { buildHeader, appendEntry, assemble, splitMessage } from '../../utils/alerts/message'
+import { filterDuplicates } from '../../utils/alerts/dedupe'
 
 // 定义大户多空比值数据接口
 interface LongShortRatioItem {
@@ -48,9 +54,8 @@ export default defineTask({
       const period = '5m' // 可选: "5m","15m","30m","1h","2h","4h","6h","12h","1d"
 
       // 配置监控时间间隔（分钟）
-      const monitoringInterval = 15 // 可以设置为5, 15, 30, 60 等
-      // 多空比变化率阈值
-      const ratioChangeThreshold = 20 // 20% 的变化率阈值，比较合理
+  const monitoringInterval = 15
+  const ratioChangeThreshold = alertThresholds.longShortRatioChangePercent
 
       // 根据监控间隔计算需要获取的数据条数
       const periodMinutes = period === '5m' ? 5 : period === '15m' ? 15 : period === '30m' ? 30 : 60
@@ -67,9 +72,8 @@ export default defineTask({
       const historyManager = createHistoryManager<LongShortRatioHistoryRecord>({
         storage,
         key: 'telegram:longShortRatio_alarm_history',
-        retentionMs: 2 * 60 * 60 * 1000, // 2小时
-        getFingerprint: r => buildFingerprint([r.symbol, r.timestamp, Math.floor(r.longShortRatio * 10000)])
-        // debug: true,
+        retentionMs: getRetention('shortWindow'),
+        getFingerprint: r => buildFingerprint([r.symbol, r.timestamp, Math.round(r.longShortRatio * 10000)])
       })
 
       // 创建请求队列
@@ -92,12 +96,7 @@ export default defineTask({
           const url = `${binanceApiUrl}/futures/data/topLongShortAccountRatio?${params.toString()}`
 
           // 发送请求到Binance API
-          const response = await fetch(url, {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-          })
+          const response = await fetchWithRetry(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } }, { retries: 2, timeoutMs: 7000 })
 
           // 检查HTTP响应状态
           if (!response.ok) {
@@ -175,22 +174,11 @@ export default defineTask({
       console.log(`📊 获取结果: 成功${successful.length}个, 失败${failed.length}个`)
 
       // 如果所有请求都失败
-      if (successful.length === 0) {
-        const executionTime = Date.now() - startTime
-        console.log(`所有数据获取失败，任务结束 (${executionTime}ms)`)
-        return {
-          result: 'error',
-          executionTimeMs: executionTime
-        }
-      }
-
-      if (failed.length > 0) {
-        const executionTime = Date.now() - startTime
-        console.log(`部分数据获取失败，任务结束 (${executionTime}ms)`)
-        return {
-          result: 'error',
-          executionTimeMs: executionTime
-        }
+      let status: 'ok' | 'partial' | 'error' = 'ok'
+      if (successful.length === 0) status = 'error'
+      else if (failed.length > 0) status = 'partial'
+      if (status === 'error') {
+        return buildTaskResult({ startTime, result: 'error', counts: { processed: symbols.length, failed: failed.length }, message: '全部失败' })
       }
 
       // 过滤超过阈值的数据
@@ -203,16 +191,7 @@ export default defineTask({
 
       // 如果没有数据超过阈值，不发送消息
       if (filteredData.length === 0) {
-        const executionTime = Date.now() - startTime
-        console.log(`📋 任务完成 - 无需通知 (${executionTime}ms)`)
-        return {
-          result: 'ok',
-          processed: symbols.length,
-          successful: successful.length,
-          failed: failed.length,
-          message: '没有超过阈值的变化，未发送消息',
-          executionTimeMs: executionTime
-        }
+        return buildTaskResult({ startTime, result: status, counts: { processed: symbols.length, successful: successful.length, failed: failed.length }, message: '没有超过阈值的变化' })
       }
       // 使用 HistoryManager 进行重复过滤与转换
       const { newInputs: newAlerts, duplicateInputs, newRecords } = await historyManager.filterNew(
@@ -230,58 +209,32 @@ export default defineTask({
       console.log(`🔍 重复过滤: ${filteredData.length} -> 新${newAlerts.length}, 重复${duplicateInputs.length}`)
 
       if (newRecords.length === 0) {
-        const executionTime = Date.now() - startTime
-        console.log(`📋 任务完成 - 全部为重复数据 (${executionTime}ms)`)
-        return {
-          result: 'ok',
-          processed: symbols.length,
-          successful: successful.length,
-          failed: failed.length,
-          filtered: filteredData.length,
-          newAlerts: 0,
-          duplicates: duplicateInputs.length,
-          message: '检测到重复数据，未发送消息',
-          executionTimeMs: executionTime
-        }
+        return buildTaskResult({ startTime, result: status, counts: { processed: symbols.length, successful: successful.length, failed: failed.length, filtered: filteredData.length, duplicates: duplicateInputs.length }, message: '重复数据' })
       }
 
       // 构建消息
-      let message = `📊 大户多空账户数比值监控报告 (${monitoringInterval}分钟变化)\n⏰ ${formatCurrentTime()}\n\n`
+      // 二次软去重 (进一步聚合变化幅度相近的一组)
+      const { fresh: finalAlerts, duplicates: softDup } = filterDuplicates(newAlerts, a => ({
+        symbol: a.symbol,
+        direction: a.latest.changeRate > 0 ? 'up' : a.latest.changeRate < 0 ? 'down' : 'flat',
+        value: parseFloat(a.latest.changeRate.toFixed(2)),
+        timestamp: a.latest.timestampMs,
+      }), [], { lookbackMs: 10 * 60 * 1000, toleranceAbs: 0.05, directionSensitive: true })
 
-      // 处理新的警报数据
-      newAlerts.forEach((item: ProcessedLongShortRatioData) => {
+      const lines: string[] = []
+      lines.push(buildHeader(`📊 大户多空账户数比值监控 (${monitoringInterval}分钟变化)`))
+      for (const item of finalAlerts) {
         const changeRate = item.latest.changeRate
         const changeIcon = changeRate > 0 ? '📈' : changeRate < 0 ? '📉' : '➡️'
-
-        // 判断是多仓增加还是空仓增加
-        const trendDescription = changeRate > 0
-          ? '🟢 多仓占比增加'
-          : changeRate < 0
-            ? '🔴 空仓占比增加'
-            : '🟡 持平'
-
-        message += `${changeIcon} ${item.symbol} - ${trendDescription}\n`
-        message += `   多空比: ${item.latest.longShortRatioFloat.toFixed(4)}\n`
-        message += `   多仓比: ${(item.latest.longAccountFloat * 100).toFixed(2)}%\n`
-        message += `   空仓比: ${(item.latest.shortAccountFloat * 100).toFixed(2)}%\n`
-        message += `   变化率: ${item.latest.changeRateFormatted}\n`
-
-        // 添加更详细的变化说明
-        if (Math.abs(changeRate) > 0) {
-          const previousLongRatio = item.latest.previousRatio
-          const currentLongRatio = item.latest.longShortRatioFloat
-          const ratioChange = (currentLongRatio - previousLongRatio).toFixed(4)
-
-          message += `   比值变化: ${previousLongRatio.toFixed(4)} → ${currentLongRatio.toFixed(4)} (${ratioChange >= '0' ? '+' : ''}${ratioChange})\n`
-        }
-
-        message += `   最新变化时间: ${item.latest.formattedTime}\n\n`
-      })
-
-      console.log(`📤 发送Telegram消息 (${message.length}字符)`)
-
-      // 发送消息到 Telegram
-      await bot.api.sendMessage('-1002663808019', message)
+        const trendDescription = changeRate > 0 ? '🟢 多仓占比增加' : changeRate < 0 ? '🔴 空仓占比增加' : '🟡 持平'
+        const previousLongRatio = item.latest.previousRatio
+        const currentLongRatio = item.latest.longShortRatioFloat
+        const ratioChange = (currentLongRatio - previousLongRatio).toFixed(4)
+        appendEntry(lines, `${changeIcon} ${item.symbol} - ${trendDescription}\n  多空比: ${currentLongRatio.toFixed(4)}\n  多仓比: ${(item.latest.longAccountFloat * 100).toFixed(2)}%  空仓比: ${(item.latest.shortAccountFloat * 100).toFixed(2)}%\n  变化率: ${item.latest.changeRateFormatted}\n  比值变化: ${previousLongRatio.toFixed(4)} → ${currentLongRatio.toFixed(4)} (${ratioChange.startsWith('-') ? '' : '+'}${ratioChange})\n  时间: ${item.latest.formattedTime}`)
+      }
+      const assembled = assemble(lines)
+      const parts = splitMessage(assembled)
+      for (const p of parts) await bot.api.sendMessage(getTelegramChannel('account:ratio'), p)
       console.log(`✅ 消息发送成功`)
 
       // 持久化新历史记录（内部会做一次过期裁剪与远端合并）
@@ -289,36 +242,19 @@ export default defineTask({
       const historySize = historyManager.getAll().length
       console.log(`💾 历史记录已更新: ${historySize}条`)
 
-      const executionTime = Date.now() - startTime
-      console.log(`🎉 任务完成: 监控${symbols.length}个, 通知${newAlerts.length}个, 用时${executionTime}ms`)
-
-      return {
-        result: 'ok',
-        processed: symbols.length,
-        successful: successful.length,
-        failed: failed.length,
-        filtered: filteredData.length,
-        newAlerts: newAlerts.length,
-        duplicates: duplicateInputs.length,
-        historyRecords: historySize,
-        executionTimeMs: executionTime
-      }
+  console.log(`🎉 任务完成: 监控${symbols.length}个, 通知${finalAlerts.length}个`)
+  return buildTaskResult({ startTime, result: status, counts: { processed: symbols.length, successful: successful.length, failed: failed.length, filtered: filteredData.length, newAlerts: finalAlerts.length, duplicates: duplicateInputs.length + softDup.length, historyRecords: historySize } })
     }
     catch (error) {
-      const executionTime = Date.now() - startTime
-      console.error(`💥 大户多空比监控任务失败: ${error instanceof Error ? error.message : '未知错误'} (${executionTime}ms)`)
+  console.error(`💥 大户多空比监控任务失败: ${error instanceof Error ? error.message : '未知错误'}`)
 
       try {
-        await bot.api.sendMessage('-1002663808019', `❌ 大户多空比监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
+        await bot.api.sendMessage(getTelegramChannel('account:ratio'), `❌ 大户多空比监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
       } catch (botError) {
         console.error('❌ 发送错误消息失败:', botError)
       }
 
-      return {
-        result: 'error',
-        error: error instanceof Error ? error.message : '未知错误',
-        executionTimeMs: executionTime
-      }
+  return buildTaskResult({ startTime, result: 'error', error: error instanceof Error ? error.message : '未知错误', message: '任务失败' })
     }
   },
 })
