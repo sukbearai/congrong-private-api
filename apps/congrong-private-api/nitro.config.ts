@@ -90,7 +90,11 @@ export default defineNitroConfig({
     },
     deepseek: {
       apiKey: process.env.deepseekApiKey,
-    }
+    },
+    coingecko: {
+      apiKey: process.env.coingeckoApiKey,
+      apiUrl: process.env.coingeckoApiUrl
+    },  
   },
 
   preset: 'cloudflare_module',
