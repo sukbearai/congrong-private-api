@@ -37,7 +37,11 @@ interface BybitTickerResponse {
         list: Array<{
             symbol: string
             lastPrice: string
+            // Bybit 线性/反向合约: openInterest (数量) + openInterestValue (美元价值)
+            openInterest?: string
             openInterestValue?: string
+            indexPrice?: string
+            markPrice?: string
         }>
     }
     time: number
@@ -189,24 +193,34 @@ export default defineTask({
                     if (json.retCode !== 0) throw new Error(`Bybit API ${json.retMsg}`)
                     if (!json.result.list?.length) throw new Error('空数据')
                     const item = json.result.list[0]
-                    const oiValue = parseFloat(item.openInterestValue || '0')
-                    if (!oiValue) throw new Error('openInterestValue 缺失或为 0')
+
+                    const oiQty = parseFloat(item.openInterest || '0')
+                    if (!oiQty) throw new Error('openInterest 缺失或为 0')
+                    const markPrice = parseFloat(item.markPrice || '0')
+                    const indexPrice = parseFloat(item.indexPrice || '0')
+                    const lastPrice = parseFloat(item.lastPrice || '0')
+                    const priceUsed = markPrice || indexPrice || lastPrice
+                    if (!priceUsed) throw new Error('无有效价格 (mark/index/last)')
                     const marketCap = mcMap[cfg.cgId] || 0
                     if (!marketCap) throw new Error('未获取到市值')
-                    const ratio = marketCap > 0 ? (oiValue / marketCap) * 100 : 0
-                    return {
+
+                    const oiUsd = oiQty * priceUsed
+                    const ratio = marketCap > 0 ? (oiUsd / marketCap) * 100 : 0
+
+                    const base: OlMcComputedItem = {
                         symbol: cfg.symbol,
                         displayName: cfg.displayName,
                         category: cfg.category,
                         cgId: cfg.cgId,
-                        openInterestValue: parseFloat(oiValue.toFixed(2)),
+                        openInterestValue: parseFloat(oiUsd.toFixed(2)),
                         marketCap: parseFloat(marketCap.toFixed(2)),
                         ratioPercent: parseFloat(ratio.toFixed(4)),
                         ratioChangePercent: 0,
                         ratioPercentFormatted: '',
                         ratioChangePercentFormatted: '',
                         timestamp: Date.now(),
-                    } as OlMcComputedItem
+                    }
+                    return { ...base, _debug: { oiQty, markPrice, indexPrice, lastPrice, priceUsed } } as OlMcComputedItem & { _debug: any }
                 })
             }
 
@@ -309,9 +323,11 @@ export default defineTask({
                 const cfg = monitorConfigs.find(c => c.symbol === item.symbol)!
                 // 交易信号判定
                 item.signal = classifySignal(item, cfg)
+                const debug = (item as any)._debug
+                const tag = debug ? ` (px:${debug.priceUsed ? (debug.priceUsed === debug.markPrice ? 'mark' : debug.priceUsed === debug.indexPrice ? 'index' : 'last') : '?'})` : ''
                 appendEntry(
                     lines,
-                    `${item.signal.icon} ${cfg.displayName} (${item.symbol})\n  Ratio: ${item.ratioPercentFormatted} (${item.ratioChangePercentFormatted})\n  Signal: ${item.signal.label} | ${item.signal.note}\n  OI: ${item.openInterestValue.toLocaleString()}  MC: ${item.marketCap.toLocaleString()}\n  时间: ${formatDateTime(item.timestamp)}`
+                    `${item.signal.icon} ${cfg.displayName}${tag} (${item.symbol})\n  Ratio: ${item.ratioPercentFormatted} (${item.ratioChangePercentFormatted})\n  Signal: ${item.signal.label} | ${item.signal.note}\n  OI: ${item.openInterestValue.toLocaleString()}  MC: ${item.marketCap.toLocaleString()}\n  时间: ${formatDateTime(item.timestamp)}`
                 )
             }
             if (failures.length) appendEntry(lines, `⚠️ 获取失败: ${failures.map(f => f.symbol).join(', ')}`)
