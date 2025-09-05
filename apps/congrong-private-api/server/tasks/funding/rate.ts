@@ -287,6 +287,10 @@ export default defineTask({
       const symbols = (await useStorage('db').getItem('telegram:ol') || []) as string[]
       const category = 'linear'
 
+      if (!symbols.length) {
+        return buildTaskResult({ startTime, result: 'ok', message: '无监控目标', counts: { processed: 0 } })
+      }
+
       // 配置监控参数
   const windowMinutes = 2
   const fundingRateThreshold = alertThresholds.fundingRateWindowChange
@@ -440,7 +444,7 @@ export default defineTask({
 
       // 如果所有请求都失败
       if (successful.length === 0) {
-        return buildTaskResult({ startTime, result: 'error', counts: { processed: symbols.length, failed: failed.length }, message: '全部获取失败' })
+        return buildTaskResult({ startTime, result: 'error', counts: { processed: symbols.length, successful: 0, failed: failed.length }, message: '全部获取失败' })
       }
 
       // 简化过滤逻辑 - 只检查1%阈值
@@ -481,7 +485,7 @@ export default defineTask({
 
       // 如果没有资金费率变化超过阈值
       if (filteredData.length === 0) {
-        return buildTaskResult({ startTime, result: 'ok', counts: { processed: symbols.length, successful: successful.length, failed: failed.length }, message: `没有超过阈值的${windowMinutes}分钟资金费率变化，未发送消息` })
+        return buildTaskResult({ startTime, result: 'ok', counts: { processed: symbols.length, successful: successful.length, failed: failed.length, filtered: 0, newAlerts: 0 }, message: `没有超过阈值的${windowMinutes}分钟资金费率变化，未发送消息` })
       }
 
       // 简化重复检测（仍旧基于窗口变化阈值 diff）
@@ -500,7 +504,7 @@ export default defineTask({
 
       // 如果没有新的警报数据
       if (newAlerts.length === 0) {
-        return buildTaskResult({ startTime, result: 'ok', counts: { processed: symbols.length, successful: successful.length, failed: failed.length, filtered: filteredData.length, duplicates: filteredData.length }, message: '检测到重复数据，未发送消息' })
+        return buildTaskResult({ startTime, result: 'ok', counts: { processed: symbols.length, successful: successful.length, failed: failed.length, filtered: filteredData.length, newAlerts: 0, duplicates: filteredData.length }, message: '检测到重复数据，未发送消息' })
       }
 
       // 简化消息构建

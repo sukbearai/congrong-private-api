@@ -67,7 +67,7 @@ export default defineTask({
       if (!response.ok) throw new Error(`HTTP 错误: ${response.status}`)
       const data = (await response.json()) as BybitAnnouncementResponse
       if (data.retCode !== 0) throw new Error(`Bybit API 错误: ${data.retMsg}`)
-  if (!data.result.list || data.result.list.length === 0) return buildTaskResult({ startTime, result: 'ok', message: '无公告' })
+  if (!data.result.list || data.result.list.length === 0) return buildTaskResult({ startTime, result: 'ok', message: '无公告', counts: { newAlerts: 0 } })
 
       // 首次运行判定
       const isFirstRun = manager.getAll().length === 0
@@ -84,7 +84,6 @@ export default defineTask({
       }))
 
       if (isFirstRun) {
-        // 首次运行：记录全部（含历史）不通知
         const firstRecords: AnnouncementHistoryRecord[] = data.result.list.map(item => ({
           url: item.url,
           publishTime: item.publishTime,
@@ -92,11 +91,11 @@ export default defineTask({
         }))
         manager.addRecords(firstRecords)
         await manager.persist()
-        return buildTaskResult({ startTime, result: 'ok', message: '首次运行，仅记录公告，不发送通知' })
+        return buildTaskResult({ startTime, result: 'ok', message: '首次运行，仅记录公告，不发送通知', counts: { newAlerts: 0, processed: data.result.list.length } })
       }
 
       if (newRecords.length === 0) {
-        return buildTaskResult({ startTime, result: 'ok', message: '无新公告', counts: { newAlerts: 0 } })
+        return buildTaskResult({ startTime, result: 'ok', message: '无新公告', counts: { newAlerts: 0, processed: recentList.length } })
       }
 
       // 构建消息
@@ -117,7 +116,7 @@ export default defineTask({
 
   // 已在 filterNew 中放入内存 map，此处只需持久化
   await manager.persist()
-  return buildTaskResult({ startTime, result: 'ok', counts: { newAlerts: newItems.length } })
+  return buildTaskResult({ startTime, result: 'ok', counts: { newAlerts: newItems.length, processed: recentList.length } })
     } catch (error) {
       try {
         await bot.api.sendMessage(telegramChannelId, `❌ Bybit新币公告监控任务失败\n⏰ ${formatDateTime(Date.now())}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)

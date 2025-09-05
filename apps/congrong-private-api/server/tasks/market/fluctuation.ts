@@ -81,6 +81,10 @@ export default defineTask({
       const monitorConfigs = (await useStorage('db').getItem('telegram:fluctuation') || []) as MonitorConfig[]
       console.log(`🚀 多币种价格波动监控任务开始 - 监控${monitorConfigs.length}个币种`)
 
+      if (!monitorConfigs.length) {
+        return buildTaskResult({ startTime, result: 'ok', message: '无监控目标', counts: { processed: 0 } })
+      }
+
       const category = 'linear'
       const klineInterval = '1'
       
@@ -283,7 +287,7 @@ export default defineTask({
 
   // 如果没有需要通知的变化
       if (notifyResults.length === 0) {
-        return buildTaskResult({ startTime, result: 'ok', counts: { processed: monitorConfigs.length, successful: successfulResults.length, failed: failedResults.length }, message: '所有币种价格变化均不显著，未发送通知', meta: { details: monitorResults.map(r => ({ symbol: r.symbol, currentPrice: r.data.currentPrice || 0, changeRate: r.data.changeRate || 0, threshold: monitorConfigs.find(c => c.symbol === r.symbol)?.priceChangeThreshold || 0, shouldNotify: r.shouldNotify, error: r.error })) } })
+        return buildTaskResult({ startTime, result: 'ok', counts: { processed: monitorConfigs.length, successful: successfulResults.length, failed: failedResults.length, filtered: 0, newAlerts: 0 }, message: '所有币种价格变化均不显著，未发送通知', meta: { details: monitorResults.map(r => ({ symbol: r.symbol, currentPrice: r.data.currentPrice || 0, changeRate: r.data.changeRate || 0, threshold: monitorConfigs.find(c => c.symbol === r.symbol)?.priceChangeThreshold || 0, shouldNotify: r.shouldNotify, error: r.error })) } })
       }
 
       // 只有当有需要通知的变化时，才获取历史记录
@@ -305,7 +309,7 @@ export default defineTask({
 
       // 如果没有新的警报数据，不发送消息
       if (newAlerts.length === 0) {
-        return buildTaskResult({ startTime, result: 'ok', counts: { processed: monitorConfigs.length, successful: successfulResults.length, failed: failedResults.length, filtered: notifyResults.length, duplicates: notifyResults.length }, message: '检测到重复波动数据，未发送消息' })
+        return buildTaskResult({ startTime, result: 'ok', counts: { processed: monitorConfigs.length, successful: successfulResults.length, failed: failedResults.length, filtered: notifyResults.length, newAlerts: 0, duplicates: notifyResults.length }, message: '检测到重复波动数据，未发送消息' })
       }
 
       const significantResults = newAlerts.filter(result => result.isSignificantChange)
@@ -376,7 +380,7 @@ export default defineTask({
 
       console.log(`🎉 任务完成: 监控${monitorConfigs.length}个, 通知${newAlerts.length}个, 用时${executionTime}ms`)
 
-  return buildTaskResult({ startTime, result: 'ok', counts: { processed: monitorConfigs.length, successful: successfulResults.length, failed: failedResults.length, newAlerts: finalAlerts.length, duplicates: (notifyResults.length - newAlerts.length) + softDup.length, historyRecords: manager.getAll().length }, meta: { significantChanges: significantResults.length, normalChanges: normalResults.length } })
+  return buildTaskResult({ startTime, result: 'ok', counts: { processed: monitorConfigs.length, successful: successfulResults.length, failed: failedResults.length, filtered: notifyResults.length, newAlerts: finalAlerts.length, duplicates: (notifyResults.length - newAlerts.length) + softDup.length, historyRecords: manager.getAll().length }, meta: { significantChanges: significantResults.length, normalChanges: normalResults.length } })
 
     } catch (error) {
       const executionTime = Date.now() - startTime

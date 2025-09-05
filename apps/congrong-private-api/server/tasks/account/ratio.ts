@@ -53,6 +53,11 @@ export default defineTask({
       const symbols = (await useStorage('db').getItem('telegram:ol') || []) as string[]
       const period = '5m' // 可选: "5m","15m","30m","1h","2h","4h","6h","12h","1d"
 
+      // 空目标快速返回，避免后续不必要调用
+      if (!symbols.length) {
+        return buildTaskResult({ startTime, result: 'ok', message: '无监控目标', counts: { processed: 0 } })
+      }
+
       // 配置监控时间间隔（分钟）
   const monitoringInterval = 15
   const ratioChangeThreshold = alertThresholds.longShortRatioChangePercent
@@ -191,7 +196,7 @@ export default defineTask({
 
       // 如果没有数据超过阈值，不发送消息
       if (filteredData.length === 0) {
-        return buildTaskResult({ startTime, result: status, counts: { processed: symbols.length, successful: successful.length, failed: failed.length }, message: '没有超过阈值的变化' })
+        return buildTaskResult({ startTime, result: status, counts: { processed: symbols.length, successful: successful.length, failed: failed.length, filtered: 0, newAlerts: 0 }, message: '没有超过阈值的变化' })
       }
       // 使用 HistoryManager 进行重复过滤与转换
       const { newInputs: newAlerts, duplicateInputs, newRecords } = await historyManager.filterNew(
@@ -209,7 +214,7 @@ export default defineTask({
       console.log(`🔍 重复过滤: ${filteredData.length} -> 新${newAlerts.length}, 重复${duplicateInputs.length}`)
 
       if (newRecords.length === 0) {
-        return buildTaskResult({ startTime, result: status, counts: { processed: symbols.length, successful: successful.length, failed: failed.length, filtered: filteredData.length, duplicates: duplicateInputs.length }, message: '重复数据' })
+        return buildTaskResult({ startTime, result: status, counts: { processed: symbols.length, successful: successful.length, failed: failed.length, filtered: filteredData.length, newAlerts: 0, duplicates: duplicateInputs.length }, message: '重复数据' })
       }
 
       // 构建消息

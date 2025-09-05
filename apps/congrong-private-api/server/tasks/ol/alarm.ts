@@ -30,6 +30,10 @@ export default defineTask({
       const intervalTime = '5min'
       const monitoringInterval = 15
   const openInterestThreshold = alertThresholds.openInterestChangePercent
+
+      if (!symbols.length) {
+        return buildTaskResult({ startTime, result: 'ok', message: '无监控目标', counts: { processed: 0 } })
+      }
       const intervalMinutes = parseInt(intervalTime.replace('min', ''))
       const limit = Math.ceil(monitoringInterval / intervalMinutes) + 1
 
@@ -99,13 +103,13 @@ export default defineTask({
       if (successful.length === 0) status = 'error'
       else if (failed.length > 0) status = 'partial'
       if (status === 'error') {
-        return buildTaskResult({ startTime, result: 'error', counts: { processed: symbols.length, failed: failed.length }, message: '全部失败' })
+        return buildTaskResult({ startTime, result: 'error', counts: { processed: symbols.length, successful: 0, failed: failed.length }, message: '全部失败' })
       }
 
       const filteredData = successful.filter(i => Math.abs(i.latest.changeRate) > openInterestThreshold)
       console.log(`🔔 需要通知: ${filteredData.length}个币种`)
       if (!filteredData.length) {
-        return buildTaskResult({ startTime, result: status, counts: { processed: symbols.length, successful: successful.length, failed: failed.length }, message: '没有超过阈值的变化' })
+        return buildTaskResult({ startTime, result: status, counts: { processed: symbols.length, successful: successful.length, failed: failed.length, filtered: 0, newAlerts: 0 }, message: '没有超过阈值的变化' })
       }
 
       const { newInputs: newAlerts, duplicateInputs, newRecords } = await historyManager.filterNew(filteredData, item => ({
@@ -117,7 +121,7 @@ export default defineTask({
       }))
       console.log(`🔍 重复过滤: 原始 ${filteredData.length} -> 新 ${newAlerts.length} / 重复 ${duplicateInputs.length}`)
       if (!newAlerts.length) {
-        return buildTaskResult({ startTime, result: status, counts: { processed: symbols.length, successful: successful.length, failed: failed.length, filtered: filteredData.length, duplicates: duplicateInputs.length }, message: '重复数据' })
+        return buildTaskResult({ startTime, result: status, counts: { processed: symbols.length, successful: successful.length, failed: failed.length, filtered: filteredData.length, newAlerts: 0, duplicates: duplicateInputs.length }, message: '重复数据' })
       }
       // 进一步细小变化去重（方向+数值容差）：避免短期内多次触发近似同幅度变化
       const { fresh: finalAlerts, duplicates: softDup } = filterDuplicates(newAlerts, a => ({
