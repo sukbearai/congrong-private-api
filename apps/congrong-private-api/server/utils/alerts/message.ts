@@ -21,13 +21,35 @@ export function splitMessage(message: string, limit: number = TELEGRAM_LIMIT): s
 }
 
 export function buildHeader(title: string): string {
+  // Header ends with a single blank line (two newlines total)
   return `${title}\n⏰ ${formatCurrentTime()}\n\n`
 }
 
 export function appendEntry(lines: string[], entry: string) {
-  lines.push(entry.trimEnd() + '\n')
+  // Ensure each entry is trimmed (no trailing spaces) and ends with exactly one newline
+  lines.push(entry.replace(/[ \t]+$/gm, '').trimEnd() + '\n')
 }
 
 export function assemble(lines: string[]): string {
-  return lines.join('')
+  const raw = lines.join('')
+  return normalizeMessage(raw)
+}
+
+// --- Formatting helpers ----------------------------------------------------
+
+/**
+ * Normalize message formatting:
+ * - Collapse 3+ consecutive blank lines into exactly 2
+ * - Remove trailing spaces before newlines
+ * - Trim trailing newlines at end (Telegram 不需要末尾多余空行)
+ * - Ensure header blank line separation is preserved
+ */
+export function normalizeMessage(message: string): string {
+  return message
+    // Remove trailing spaces on each line
+    .replace(/[ \t]+\n/g, '\n')
+    // Collapse windows of >=3 newlines to exactly 2
+    .replace(/\n{3,}/g, '\n\n')
+    // Trim trailing newlines at end
+    .replace(/\n+$/,'')
 }
