@@ -1,3 +1,5 @@
+import { createHistoryManager, buildFingerprint } from '../../utils/historyManager'
+
 interface BybitAnnouncementItem {
   title: string
   description: string
@@ -27,12 +29,6 @@ interface AnnouncementHistoryRecord {
   notifiedAt: number
 }
 
-function cleanExpiredAnnouncementRecords(records: AnnouncementHistoryRecord[]): AnnouncementHistoryRecord[] {
-  // 只保留最近7天的记录
-  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
-  return records.filter(r => r.notifiedAt > sevenDaysAgo)
-}
-
 export default defineTask({
   meta: {
     name: 'market:announcement',
@@ -40,8 +36,8 @@ export default defineTask({
   },
   async run() {
     const startTime = Date.now()
-    const storage = useStorage('db')
-    const historyKey = 'telegram:announcement_history'
+  const storage = useStorage('db')
+  const historyKey = 'telegram:announcement_history'
     const telegramChannelId = '-1002663808019'
 
     // 获取配置信息
@@ -50,9 +46,14 @@ export default defineTask({
     const apiUrl = `${bybitApiUrl}/v5/announcements/index?locale=zh-TW&type=new_crypto&limit=50`
 
     try {
-      // 获取历史记录
-      let historyRecords = (await storage.getItem(historyKey) || []) as AnnouncementHistoryRecord[]
-      historyRecords = cleanExpiredAnnouncementRecords(historyRecords)
+      // 初始化历史记录管理
+      const manager = createHistoryManager<AnnouncementHistoryRecord>({
+        storage,
+        key: historyKey,
+        retentionMs: 7 * 24 * 60 * 60 * 1000, // 7天
+        getFingerprint: r => buildFingerprint([r.url, r.publishTime]),
+      })
+      await manager.load()
 
       // 拉取Bybit公告
       const response = await fetch(apiUrl, { method: 'GET' })
@@ -61,54 +62,49 @@ export default defineTask({
       if (data.retCode !== 0) throw new Error(`Bybit API 错误: ${data.retMsg}`)
       if (!data.result.list || data.result.list.length === 0) return { result: 'ok', message: '无公告' }
 
-      // 过滤出未通知过的新公告，且只推送最近1天发布的公告
-      const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000
-      const newItems = data.result.list.filter(item => {
-        const isNew = !historyRecords.some(r => r.url === item.url && r.publishTime === item.publishTime)
-        const isRecent = item.publishTime > oneDayAgo
-        return isNew && isRecent
-      })
+      // 首次运行判定
+      const isFirstRun = manager.getAll().length === 0
 
-      const isFirstRun = historyRecords.length === 0
+      // 只考虑最近1天的公告
+      const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000
+      const recentList = data.result.list.filter(item => item.publishTime > oneDayAgo)
+
+      // 使用 HistoryManager 去重
+      const { newInputs: newItems, newRecords } = await manager.filterNew(recentList, item => ({
+        url: item.url,
+        publishTime: item.publishTime,
+        notifiedAt: Date.now(),
+      }))
 
       if (isFirstRun) {
-        // 首次运行，全部公告都记录，不发送通知
-        const allHistory: AnnouncementHistoryRecord[] = data.result.list.map(item => ({
+        // 首次运行：记录全部（含历史）不通知
+        const firstRecords: AnnouncementHistoryRecord[] = data.result.list.map(item => ({
           url: item.url,
           publishTime: item.publishTime,
           notifiedAt: Date.now(),
         }))
-        historyRecords.push(...allHistory)
-        historyRecords = cleanExpiredAnnouncementRecords(historyRecords)
-        await storage.setItem(historyKey, historyRecords)
+        manager.addRecords(firstRecords)
+        await manager.persist()
         return { result: 'ok', message: '首次运行，仅记录公告，不发送通知' }
       }
 
-      if (newItems.length === 0) {
-        // 没有新公告
+      if (newRecords.length === 0) {
         return { result: 'ok', message: '无新公告' }
       }
 
       // 构建消息
       let message = `📢 Bybit 新币公告监控\n⏰ ${formatDateTime(Date.now())}\n\n`
-      const latestItem = newItems[0]
+  const latestItem = newItems[0]
       message += `【${latestItem.type.title}】${latestItem.title}\n${latestItem.description}\n🔗 [查看公告](${latestItem.url})\n🕒 ${formatDateTime(latestItem.publishTime)}\n\n`
 
       // 发送到Telegram
       await bot.api.sendMessage(telegramChannelId, message, { parse_mode: 'Markdown' })
 
-      // 记录新通知
-      const newHistory: AnnouncementHistoryRecord[] = newItems.map(item => ({
-        url: item.url,
-        publishTime: item.publishTime,
-        notifiedAt: Date.now(),
-      }))
-      historyRecords.push(...newHistory)
-      historyRecords = cleanExpiredAnnouncementRecords(historyRecords)
-      await storage.setItem(historyKey, historyRecords)
+  // 已在 filterNew 中放入内存 map，此处只需持久化
+  await manager.persist()
 
       const executionTime = Date.now() - startTime
-      return { result: 'ok', notified: newItems.length, executionTimeMs: executionTime }
+  return { result: 'ok', notified: newItems.length, executionTimeMs: executionTime }
     } catch (error) {
       const executionTime = Date.now() - startTime
       try {

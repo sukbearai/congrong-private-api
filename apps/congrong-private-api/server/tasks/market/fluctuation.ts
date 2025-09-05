@@ -42,6 +42,8 @@ interface MonitorResult {
 }
 
 // 定义历史记录接口
+import { createHistoryManager, buildFingerprint } from '../../utils/historyManager'
+
 interface FluctuationHistoryRecord {
   symbol: string
   timestamp: number
@@ -49,41 +51,14 @@ interface FluctuationHistoryRecord {
   notifiedAt: number
 }
 
-// 检查是否为重复通知 - 如果波动率变化在1%范围内则认为是重复
-function isDuplicateFluctuationAlert(
-  currentChangeRate: number,
-  symbol: string,
-  historyRecords: FluctuationHistoryRecord[]
-): boolean {
-  // 查找该币种最近的通知记录
-  const recentRecord = historyRecords
-    .filter(record => record.symbol === symbol)
-    .sort((a, b) => b.notifiedAt - a.notifiedAt)[0]
-  
-  if (!recentRecord) {
-    return false // 没有历史记录，不是重复
-  }
-  
-  // 检查方向是否相同
+// 复用旧逻辑的“重复”判定，但改造成直接接受最近一条记录
+function isDuplicateWithRecent(currentChangeRate: number, recent?: FluctuationHistoryRecord): boolean {
+  if (!recent) return false
   const currentDirection = currentChangeRate >= 0 ? 'up' : 'down'
-  const recentDirection = recentRecord.changeRate >= 0 ? 'up' : 'down'
-  
-  // 如果方向不同，不认为是重复
-  if (currentDirection !== recentDirection) {
-    return false
-  }
-  
-  // 检查波动率变化是否在2%范围内
-  const rateChange = Math.abs(Math.abs(currentChangeRate) - Math.abs(recentRecord.changeRate))
-  const isDuplicate = rateChange <= 2
-  
-  return isDuplicate
-}
-
-// 清理过期的历史记录（保留最近2小时的记录）
-function cleanExpiredFluctuationRecords(records: FluctuationHistoryRecord[]): FluctuationHistoryRecord[] {
-  const twoHoursAgo = Date.now() - (2 * 60 * 60 * 1000)
-  return records.filter(record => record.notifiedAt > twoHoursAgo)
+  const recentDirection = recent.changeRate >= 0 ? 'up' : 'down'
+  if (currentDirection !== recentDirection) return false
+  const rateChange = Math.abs(Math.abs(currentChangeRate) - Math.abs(recent.changeRate))
+  return rateChange <= 2 // 2% 内视为重复
 }
 
 export default defineTask({
@@ -110,9 +85,16 @@ export default defineTask({
       const config = useRuntimeConfig()
       const bybitApiUrl = config.bybit?.bybitApiUrl
 
-      // 初始化存储（但不立即获取历史记录）
+      // 初始化历史管理器
       const storage = useStorage('db')
       const historyKey = 'telegram:fluctuation_history'
+      const manager = createHistoryManager<FluctuationHistoryRecord>({
+        storage,
+        key: historyKey,
+        retentionMs: 2 * 60 * 60 * 1000, // 2小时
+        getFingerprint: r => buildFingerprint([r.symbol, r.timestamp, Math.round(r.changeRate * 100) / 100]),
+      })
+      await manager.load()
 
       // 创建请求队列
       const requestQueue = new RequestQueue({
@@ -297,8 +279,8 @@ export default defineTask({
       
       console.log(`🔔 需要通知: ${notifyResults.length}个币种`)
 
-      // 如果没有需要通知的变化，直接返回，不需要获取历史记录
-      if (notifyResults.length === 0) {
+  // 如果没有需要通知的变化
+  if (notifyResults.length === 0) {
         const executionTime = Date.now() - startTime
         console.log(`📋 任务完成 - 无需通知 (${executionTime}ms)`)
         
@@ -321,18 +303,18 @@ export default defineTask({
       }
 
       // 只有当有需要通知的变化时，才获取历史记录
-      console.log(`📚 开始获取历史记录用于重复检测...`)
-      let historyRecords = (await storage.getItem(historyKey) || []) as FluctuationHistoryRecord[]
-      
-      // 清理过期记录
-      const beforeCleanCount = historyRecords.length
-      historyRecords = cleanExpiredFluctuationRecords(historyRecords)
-      console.log(`📚 历史记录清理: ${beforeCleanCount} -> ${historyRecords.length}`)
+      // 利用 manager 中的历史记录做重复检测
+      const existing = manager.getAll()
+      // 每个 symbol 找最近记录
+      const latestBySymbol = new Map<string, FluctuationHistoryRecord>()
+      for (const rec of existing) {
+        const prev = latestBySymbol.get(rec.symbol)
+        if (!prev || rec.notifiedAt > prev.notifiedAt) latestBySymbol.set(rec.symbol, rec)
+      }
 
-      // 过滤重复通知
       const newAlerts = notifyResults.filter(result => {
-        const isDuplicate = isDuplicateFluctuationAlert(result.data.changeRate, result.symbol, historyRecords)
-        return !isDuplicate
+        const recent = latestBySymbol.get(result.symbol)
+        return !isDuplicateWithRecent(result.data.changeRate, recent)
       })
 
       console.log(`🔍 重复过滤: ${notifyResults.length} -> ${newAlerts.length}`)
@@ -417,22 +399,16 @@ export default defineTask({
       await bot.api.sendMessage('-1002663808019', message)
       console.log(`✅ 消息发送成功`)
 
-      // 记录新的通知历史
-      const newHistoryRecords: FluctuationHistoryRecord[] = newAlerts.map(result => ({
+      // 新记录加入 manager
+      const newRecords: FluctuationHistoryRecord[] = newAlerts.map(result => ({
         symbol: result.symbol,
         timestamp: result.data.timestamp,
         changeRate: result.data.changeRate,
-        notifiedAt: Date.now()
+        notifiedAt: Date.now(),
       }))
-
-      // 更新历史记录
-      historyRecords.push(...newHistoryRecords)
-      
-      // 再次清理过期记录并保存
-      historyRecords = cleanExpiredFluctuationRecords(historyRecords)
-      await storage.setItem(historyKey, historyRecords)
-      
-      console.log(`💾 历史记录已更新: ${historyRecords.length}条`)
+      manager.addRecords(newRecords)
+      await manager.persist()
+      console.log(`💾 历史记录已更新: ${manager.getAll().length}条`)
 
       const executionTime = Date.now() - startTime
 
@@ -447,7 +423,7 @@ export default defineTask({
         duplicates: notifyResults.length - newAlerts.length,
         significantChanges: significantResults.length,
         normalChanges: normalResults.length,
-        historyRecords: historyRecords.length,
+  historyRecords: manager.getAll().length,
         executionTimeMs: executionTime,
         details: monitorResults.map(r => ({
           symbol: r.symbol,
