@@ -1,7 +1,8 @@
-import type { 
-  BybitApiResponse, 
-  OpenInterestError 
+import type {
+  BybitApiResponse,
+  OpenInterestError
 } from '../../routes/exchanges/bybit/openInterest/types'
+import { createHistoryManager, buildFingerprint } from '../../utils/historyManager'
 
 // 定义 JSON 存储 API 读取响应的类型
 interface JsonStorageReadResponse {
@@ -119,11 +120,7 @@ function cleanExpiredTimeSeriesRecords(records: FundingRateTimeSeriesRecord[], w
   return records.filter(record => record.timestamp > cutoffTime)
 }
 
-// 清理过期的历史记录（保留最近2小时的记录）
-function cleanExpiredFundingRateRecords(records: FundingRateHistoryRecord[]): FundingRateHistoryRecord[] {
-  const twoHoursAgo = Date.now() - (2 * 60 * 60 * 1000)
-  return records.filter(record => record.notifiedAt > twoHoursAgo)
-}
+// 历史记录保留与去重由 HistoryManager 接管 (retention=2h)
 
 // 分析时间窗口内的资金费率变化
 function analyzeTimeWindow(records: FundingRateTimeSeriesRecord[], windowMinutes: number) {
@@ -133,18 +130,18 @@ function analyzeTimeWindow(records: FundingRateTimeSeriesRecord[], windowMinutes
 
   // 按时间排序
   const sortedRecords = records.sort((a, b) => a.timestamp - b.timestamp)
-  
+
   const oldestRecord = sortedRecords[0]
   const newestRecord = sortedRecords[sortedRecords.length - 1]
-  
+
   const changeRate = newestRecord.fundingRate - oldestRecord.fundingRate
   const changeRatePercent = Math.abs(changeRate) * 100
-  
+
   const rates = sortedRecords.map(r => r.fundingRate)
   const maxRate = Math.max(...rates)
   const minRate = Math.min(...rates)
   const volatility = maxRate - minRate
-  
+
   return {
     windowMinutes,
     oldestRate: oldestRecord.fundingRate,
@@ -165,24 +162,24 @@ function isDuplicateAlert(
   threshold: number = 0.01 // 默认1%阈值
 ): boolean {
   if (!currentData.windowAnalysis) return false
-  
+
   const currentSymbol = currentData.symbol
   const currentChangeRate = currentData.windowAnalysis.changeRate
-  
+
   // 检查最近30分钟内是否有相似的警报
   const thirtyMinutesAgo = Date.now() - (30 * 60 * 1000)
-  
+
   return historyRecords.some(record => {
     if (record.symbol !== currentSymbol) return false
     if (record.notifiedAt < thirtyMinutesAgo) return false
-    
+
     // 使用与触发阈值相同的容忍度
     const isSimilar = Math.abs(record.changeRate - currentChangeRate) <= threshold
-    
+
     if (isSimilar) {
       console.log(`🚫 ${currentSymbol} 检测到相似警报: 当前变化${(currentChangeRate * 100).toFixed(4)}%, 历史变化${(record.changeRate * 100).toFixed(4)}%`)
     }
-    
+
     return isSimilar
   })
 }
@@ -191,7 +188,7 @@ function isDuplicateAlert(
 async function loadDataFromAPI(): Promise<FundingRateDataFile> {
   const apiUrl = 'https://shebei.congrongtech.cn/telegram/upload'
   const dataKey = 'data/funding-rate-data'
-  
+
   try {
     const response = await fetch(`${apiUrl}?key=${dataKey}`, {
       method: 'GET',
@@ -199,13 +196,13 @@ async function loadDataFromAPI(): Promise<FundingRateDataFile> {
         'Content-Type': 'application/json',
       },
     })
-    
+
     if (!response.ok) {
       throw new Error(`HTTP 错误: ${response.status}`)
     }
-    
+
     const result = await response.json() as JsonStorageReadResponse
-    
+
     if (result.code !== 0) {
       console.log('📁 数据文件不存在，返回空数据')
       return {
@@ -214,7 +211,7 @@ async function loadDataFromAPI(): Promise<FundingRateDataFile> {
         lastUpdated: 0
       }
     }
-    
+
     // 确保数据存在并且有正确的结构
     if (!result.data || !result.data.data) {
       console.log('📁 数据格式不正确，返回空数据')
@@ -224,7 +221,7 @@ async function loadDataFromAPI(): Promise<FundingRateDataFile> {
         lastUpdated: 0
       }
     }
-    
+
     const data = result.data.data as FundingRateDataFile
     console.log(`📁 从API读取数据: 时间序列${data.timeSeriesData.length}条, 历史记录${data.historyRecords.length}条`)
     return data
@@ -242,10 +239,10 @@ async function loadDataFromAPI(): Promise<FundingRateDataFile> {
 async function saveDataToAPI(data: FundingRateDataFile): Promise<void> {
   const apiUrl = 'https://shebei.congrongtech.cn/telegram/upload'
   const dataKey = 'data/funding-rate-data'
-  
+
   try {
     data.lastUpdated = Date.now()
-    
+
     const response = await fetch(`${apiUrl}?key=${dataKey}`, {
       method: 'POST',
       headers: {
@@ -253,17 +250,17 @@ async function saveDataToAPI(data: FundingRateDataFile): Promise<void> {
       },
       body: JSON.stringify(data),
     })
-    
+
     if (!response.ok) {
       throw new Error(`HTTP 错误: ${response.status}`)
     }
-    
+
     const result = await response.json() as JsonStorageWriteResponse
-    
+
     if (result.code !== 0) {
       throw new Error(`API 错误: ${result.message}`)
     }
-    
+
     console.log(`💾 数据保存到API: 时间序列${data.timeSeriesData.length}条, 历史记录${data.historyRecords.length}条`)
   } catch (error) {
     console.error('❌ 保存API数据文件失败:', error)
@@ -278,21 +275,43 @@ export default defineTask({
   },
   async run() {
     const startTime = Date.now()
-    
+
     try {
       // 配置要监控的币种
       const symbols = (await useStorage('db').getItem('telegram:ol') || []) as string[]
       const category = 'linear'
-      
+
       // 配置监控参数
       const windowMinutes = 2 // 时间窗口：2分钟
       const fundingRateThreshold = 0.003 // 0.3% 的资金费率变化阈值
 
       console.log(`🚀 资金费率监控任务开始 - 监控${symbols.length}个币种, 时间窗口${windowMinutes}分钟, 阈值${fundingRateThreshold * 100}%`)
 
-      // 从API读取历史数据
+      // 从API读取历史数据（仅用于 timeSeriesData，历史记录改由 HistoryManager 管理）
       const dataFile = await loadDataFromAPI()
-      let { timeSeriesData, historyRecords } = dataFile
+      let { timeSeriesData } = dataFile
+
+      // 初始化 HistoryManager（2 小时保留）
+      const historyManager = createHistoryManager<FundingRateHistoryRecord>({
+        storage: useStorage('db'),
+        key: 'telegram:funding_rate_history',
+        retentionMs: 2 * 60 * 60 * 1000,
+        // 指纹：symbol + windowMinutes + 下次结算时间(小时粒度) + notifiedAt（保证唯一，重复过滤走自定义逻辑）
+        getFingerprint: (r) => buildFingerprint([
+          r.symbol,
+          r.windowMinutes,
+          Math.floor(r.nextFundingTime / (60 * 60 * 1000)),
+          r.notifiedAt,
+        ])
+      })
+
+      await historyManager.load()
+      // 如果 KV 中还没有历史记录，尝试用旧 API 里的历史数据做一次迁移（平滑过渡）
+      if (historyManager.getAll().length === 0 && dataFile.historyRecords?.length) {
+        historyManager.addRecords(dataFile.historyRecords as FundingRateHistoryRecord[])
+        await historyManager.persist()
+        console.log('⬇️  已迁移旧历史记录到 HistoryManager:', dataFile.historyRecords.length)
+      }
 
       // 获取配置信息
       const config = useRuntimeConfig()
@@ -349,10 +368,10 @@ export default defineTask({
 
           // 获取当前symbol的历史时间序列数据
           let symbolTimeSeriesData = timeSeriesData.filter(record => record.symbol === symbol)
-          
+
           // 清理过期数据
           symbolTimeSeriesData = cleanExpiredTimeSeriesRecords(symbolTimeSeriesData, windowMinutes)
-          
+
           // 添加当前数据点
           const newRecord: FundingRateTimeSeriesRecord = {
             symbol,
@@ -361,20 +380,20 @@ export default defineTask({
             formatCurrentTime: formatDateTime(currentTimestamp),
             nextFundingTime: parseInt(ticker.nextFundingTime)
           }
-          
+
           symbolTimeSeriesData.push(newRecord)
-          
+
           // 分析时间窗口数据
           const windowAnalysis = analyzeTimeWindow(symbolTimeSeriesData, windowMinutes)
-          
+
           // 更新时间序列数据
           timeSeriesData = [
             ...timeSeriesData.filter(record => record.symbol !== symbol),
             ...symbolTimeSeriesData
           ]
-          
+
           // 清理所有symbol的过期数据
-          timeSeriesData = timeSeriesData.filter(record => 
+          timeSeriesData = timeSeriesData.filter(record =>
             record.timestamp > (currentTimestamp - (windowMinutes * 60 * 1000))
           )
 
@@ -401,7 +420,7 @@ export default defineTask({
         try {
           const data = await fetchSymbolFundingRate(symbol)
           successful.push(data)
-          const windowInfo = data.windowAnalysis 
+          const windowInfo = data.windowAnalysis
             ? `(${windowMinutes}分钟变化: ${data.windowAnalysis.changeRatePercent.toFixed(4)}%)`
             : '(数据不足)'
           console.log(`✅ ${symbol}: 资金费率 ${data.fundingRatePercent.toFixed(4)}% ${windowInfo}`)
@@ -429,26 +448,27 @@ export default defineTask({
       // 简化过滤逻辑 - 只检查1%阈值
       const filteredData = successful.filter(item => {
         if (!item.windowAnalysis) return false
-        
+
         const analysis = item.windowAnalysis
-        
+
         // 简化为只检查绝对变化是否超过1%阈值
         const absoluteChangeExceeds = Math.abs(analysis.changeRate) > fundingRateThreshold
-        
+
         if (absoluteChangeExceeds) {
           console.log(`🔔 ${item.symbol} 触发警报: 变化${(analysis.changeRate * 100).toFixed(4)}% (阈值${fundingRateThreshold * 100}%)`)
         }
-        
+
         return absoluteChangeExceeds
       })
 
       console.log(`🔔 需要通知: ${filteredData.length}个币种`)
 
-      // 清理过期的历史记录
-      console.log(`📚 清理历史记录...`)
-      const beforeCleanCount = historyRecords.length
-      historyRecords = cleanExpiredFundingRateRecords(historyRecords)
-      console.log(`📚 历史记录清理: ${beforeCleanCount} -> ${historyRecords.length}`)
+      // 触发一次 prune（HistoryManager 自带 retention 裁剪）
+      // 再次显式 load 以防意外（容错：如果上面某段提前 return 或 future 代码调整导致未加载）
+      await historyManager.load()
+      historyManager.prune()
+      const historyRecords = historyManager.getAll()
+      console.log(`📚 历史记录裁剪后剩余: ${historyRecords.length}`)
 
       // 保存数据到API
       try {
@@ -465,8 +485,8 @@ export default defineTask({
       if (filteredData.length === 0) {
         const executionTime = Date.now() - startTime
         console.log(`📋 任务完成 - 无需通知 (${executionTime}ms)`)
-        return { 
-          result: 'ok', 
+        return {
+          result: 'ok',
           processed: symbols.length,
           successful: successful.length,
           failed: failed.length,
@@ -475,17 +495,16 @@ export default defineTask({
         }
       }
 
-      // 简化重复检测
+      // 简化重复检测（仍旧基于窗口变化阈值 diff）
+      const existingRecordsForDup = historyManager.getAll()
       const newAlerts = filteredData.filter((item, index) => {
-        const isDuplicate = isDuplicateAlert(item, historyRecords,fundingRateThreshold)
-        
-        if (isDuplicate) {
+        const isDup = isDuplicateAlert(item, existingRecordsForDup, fundingRateThreshold)
+        if (isDup) {
           console.log(`🔍 [${index + 1}/${filteredData.length}] ${item.symbol} - 重复数据已过滤`)
         } else {
           console.log(`✅ [${index + 1}/${filteredData.length}] ${item.symbol} - 新警报数据`)
         }
-        
-        return !isDuplicate
+        return !isDup
       })
 
       console.log(`🔍 重复过滤结果: 总数${filteredData.length} -> 新警报${newAlerts.length} (过滤掉${filteredData.length - newAlerts.length}个重复)`)
@@ -494,8 +513,8 @@ export default defineTask({
       if (newAlerts.length === 0) {
         const executionTime = Date.now() - startTime
         console.log(`📋 任务完成 - 重复数据过滤 (${executionTime}ms)`)
-        return { 
-          result: 'ok', 
+        return {
+          result: 'ok',
           processed: symbols.length,
           successful: successful.length,
           failed: failed.length,
@@ -508,14 +527,14 @@ export default defineTask({
 
       // 简化消息构建
       let message = `💰 资金费率监控报告 (${windowMinutes}分钟窗口)\n⏰ ${formatCurrentTime()}\n\n`
-      
+
       newAlerts.forEach((item: ProcessedFundingRateData) => {
         if (!item.windowAnalysis) return
-        
+
         const analysis = item.windowAnalysis
         const changeIcon = analysis.changeRate > 0 ? '📈' : '📉'
         const fundingRateIcon = item.fundingRatePercent > 0 ? '🔴' : '🟢'
-        
+
         message += `${changeIcon} ${item.symbol} ${fundingRateIcon}\n`
         message += `   当前费率: ${item.fundingRatePercent.toFixed(4)}%\n`
         message += `   ${windowMinutes}分钟前: ${(analysis.oldestRate * 100).toFixed(4)}%\n`
@@ -523,14 +542,14 @@ export default defineTask({
         message += `   下次结算: ${item.formattedNextFundingTime}\n`
         message += `   价格: $${parseFloat(item.lastPrice).toLocaleString()}\n\n`
       })
-      
+
       console.log(`📤 发送Telegram消息 (${message.length}字符)`)
-      
+
       // 发送消息到 Telegram
       await bot.api.sendMessage('-1002663808019', message)
       console.log(`✅ 消息发送成功`)
-      
-      // 记录新的通知历史
+
+      // 记录新的通知历史并写入 HistoryManager
       const newHistoryRecords: FundingRateHistoryRecord[] = newAlerts.map(item => ({
         symbol: item.symbol,
         fundingRate: item.fundingRate,
@@ -539,37 +558,40 @@ export default defineTask({
         nextFundingTime: parseInt(item.nextFundingTime),
         windowMinutes
       }))
+      if (newHistoryRecords.length) {
+        historyManager.addRecords(newHistoryRecords)
+        await historyManager.persist()
+      }
 
-      // 更新历史记录
-      historyRecords.push(...newHistoryRecords)
-      historyRecords = cleanExpiredFundingRateRecords(historyRecords)
+      const historyRecordsAfterPersist = historyManager.getAll()
 
       // 最终保存数据到API
       try {
         await saveDataToAPI({
           timeSeriesData,
-          historyRecords,
+          // 为兼容旧数据结构，仍把最新历史记录快照写入 API 文件
+          historyRecords: historyRecordsAfterPersist,
           lastUpdated: Date.now()
         })
       } catch (error) {
         console.error('❌ 最终保存数据到API失败:', error)
       }
 
-      console.log(`💾 历史记录已更新: ${historyRecords.length}条`)
-      
+      console.log(`💾 历史记录已更新: ${historyRecordsAfterPersist.length}条 (新增 ${newHistoryRecords.length} 条)`)
+
       const executionTime = Date.now() - startTime
       console.log(`🎉 任务完成: 监控${symbols.length}个, 通知${newAlerts.length}个, 用时${executionTime}ms`)
-      console.log(`📊 最终数据: 时间序列${timeSeriesData.length}条, 历史记录${historyRecords.length}条`)
-      
-      return { 
-        result: 'ok', 
+      console.log(`📊 最终数据: 时间序列${timeSeriesData.length}条, 历史记录${historyRecordsAfterPersist.length}条`)
+
+      return {
+        result: 'ok',
         processed: symbols.length,
         successful: successful.length,
         failed: failed.length,
         filtered: filteredData.length,
         newAlerts: newAlerts.length,
         duplicates: filteredData.length - newAlerts.length,
-        historyRecords: historyRecords.length,
+        historyRecords: historyRecordsAfterPersist.length,
         timeSeriesRecords: timeSeriesData.length,
         windowMinutes,
         executionTimeMs: executionTime
@@ -578,14 +600,14 @@ export default defineTask({
     catch (error) {
       const executionTime = Date.now() - startTime
       console.error(`💥 资金费率监控任务失败: ${error instanceof Error ? error.message : '未知错误'} (${executionTime}ms)`)
-      
+
       try {
         await bot.api.sendMessage('-1002663808019', `❌ 资金费率监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
       } catch (botError) {
         console.error('❌ 发送错误消息失败:', botError)
       }
-      
-      return { 
+
+      return {
         result: 'error',
         error: error instanceof Error ? error.message : '未知错误',
         executionTimeMs: executionTime

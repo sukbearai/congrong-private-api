@@ -105,8 +105,9 @@ export function createHistoryManager<TRecord extends BaseHistoryRecord>(options:
         if (fp) map.set(fp, r)
       }
     }
-    prune() // 初始加载时裁剪
-    loaded = true
+  // 先标记 loaded 再调用 prune，避免 prune 内部 ensureLoaded 抛错
+  loaded = true
+  prune() // 初始加载时裁剪
     log('loaded', map.size)
   }
 
