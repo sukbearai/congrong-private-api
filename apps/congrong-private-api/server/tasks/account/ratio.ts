@@ -1,6 +1,5 @@
-import type {
-  OpenInterestError
-} from '../../routes/exchanges/bybit/openInterest/types'
+import type { OpenInterestError } from '../../routes/exchanges/bybit/openInterest/types'
+import { createHistoryManager, buildFingerprint } from '../../utils/historyManager'
 
 // 定义大户多空比值数据接口
 interface LongShortRatioItem {
@@ -26,48 +25,13 @@ interface ProcessedLongShortRatioData {
   latest: LongShortRatioItem
 }
 
-// 定义历史记录接口
+// 定义历史记录接口（用于 HistoryManager）
 interface LongShortRatioHistoryRecord {
   symbol: string
   timestamp: number
   longShortRatio: number
   changeRate: number
   notifiedAt: number
-}
-
-// 生成数据指纹，用于判断数据重复性
-function generateDataFingerprint(symbol: string, timestamp: number, ratio: number): string {
-  return `${symbol}_${timestamp}_${Math.floor(ratio * 10000)}`
-}
-
-// 检查是否为重复数据
-function isDuplicateAlert(
-  currentData: ProcessedLongShortRatioData,
-  historyRecords: LongShortRatioHistoryRecord[]
-): boolean {
-  const currentFingerprint = generateDataFingerprint(
-    currentData.symbol,
-    currentData.latest.timestampMs,
-    currentData.latest.longShortRatioFloat
-  )
-
-  // 检查历史记录中是否有相同的数据指纹
-  const isDuplicate = historyRecords.some(record => {
-    const historyFingerprint = generateDataFingerprint(
-      record.symbol,
-      record.timestamp,
-      record.longShortRatio
-    )
-    return historyFingerprint === currentFingerprint
-  })
-
-  return isDuplicate
-}
-
-// 清理过期的历史记录（保留最近2小时的记录）
-function cleanExpiredRecords(records: LongShortRatioHistoryRecord[]): LongShortRatioHistoryRecord[] {
-  const twoHoursAgo = Date.now() - (2 * 60 * 60 * 1000)
-  return records.filter(record => record.notifiedAt > twoHoursAgo)
 }
 
 export default defineTask({
@@ -98,9 +62,15 @@ export default defineTask({
       const config = useRuntimeConfig()
       const binanceApiUrl = config.binance.binanceApiUrl // Binance Futures API
 
-      // 初始化存储（但不立即获取历史记录）
+      // 初始化 HistoryManager（仅在真正需要通知时才会触发 load/persist）
       const storage = useStorage('db')
-      const historyKey = 'telegram:longShortRatio_alarm_history'
+      const historyManager = createHistoryManager<LongShortRatioHistoryRecord>({
+        storage,
+        key: 'telegram:longShortRatio_alarm_history',
+        retentionMs: 2 * 60 * 60 * 1000, // 2小时
+        getFingerprint: r => buildFingerprint([r.symbol, r.timestamp, Math.floor(r.longShortRatio * 10000)])
+        // debug: true,
+      })
 
       // 创建请求队列
       const requestQueue = new RequestQueue({
@@ -136,7 +106,7 @@ export default defineTask({
 
           // 解析响应数据
           let apiResponse = (await response.json() as LongShortRatioItem[])
-          
+
           // 反转数组，使最新数据在前
           apiResponse = apiResponse.reverse()
 
@@ -231,7 +201,7 @@ export default defineTask({
 
       console.log(`🔔 需要通知: ${filteredData.length}个币种`)
 
-      // 如果没有数据超过阈值，不发送消息，不需要获取历史记录
+      // 如果没有数据超过阈值，不发送消息
       if (filteredData.length === 0) {
         const executionTime = Date.now() - startTime
         console.log(`📋 任务完成 - 无需通知 (${executionTime}ms)`)
@@ -244,35 +214,32 @@ export default defineTask({
           executionTimeMs: executionTime
         }
       }
+      // 使用 HistoryManager 进行重复过滤与转换
+      const { newInputs: newAlerts, duplicateInputs, newRecords } = await historyManager.filterNew(
+        filteredData,
+        (item): LongShortRatioHistoryRecord => ({
+          symbol: item.symbol,
+          timestamp: item.latest.timestampMs,
+          longShortRatio: item.latest.longShortRatioFloat,
+          changeRate: item.latest.changeRate,
+          // 采用最新数据时间戳作为通知时间
+          notifiedAt: item.latest.timestampMs
+        })
+      )
 
-      // 只有当有需要通知的变化时，才获取历史记录
-      console.log(`📚 开始获取历史记录用于重复检测...`)
-      let historyRecords = (await storage.getItem(historyKey) || []) as LongShortRatioHistoryRecord[]
+      console.log(`🔍 重复过滤: ${filteredData.length} -> 新${newAlerts.length}, 重复${duplicateInputs.length}`)
 
-      // 清理过期记录
-      const beforeCleanCount = historyRecords.length
-      historyRecords = cleanExpiredRecords(historyRecords)
-      console.log(`📚 历史记录清理: ${beforeCleanCount} -> ${historyRecords.length}`)
-
-      // 检查重复数据，过滤掉已经通知过的数据
-      const newAlerts = filteredData.filter(item => {
-        const isDuplicate = isDuplicateAlert(item, historyRecords)
-        return !isDuplicate
-      })
-
-      console.log(`🔍 重复过滤: ${filteredData.length} -> ${newAlerts.length}`)
-
-      // 如果没有新的警报数据，不发送消息
-      if (newAlerts.length === 0) {
+      if (newRecords.length === 0) {
         const executionTime = Date.now() - startTime
-        console.log(`📋 任务完成 - 重复数据过滤 (${executionTime}ms)`)
+        console.log(`📋 任务完成 - 全部为重复数据 (${executionTime}ms)`)
         return {
           result: 'ok',
           processed: symbols.length,
           successful: successful.length,
           failed: failed.length,
           filtered: filteredData.length,
-          duplicates: filteredData.length,
+          newAlerts: 0,
+          duplicates: duplicateInputs.length,
           message: '检测到重复数据，未发送消息',
           executionTimeMs: executionTime
         }
@@ -317,23 +284,10 @@ export default defineTask({
       await bot.api.sendMessage('-1002663808019', message)
       console.log(`✅ 消息发送成功`)
 
-      // 记录新的通知历史
-      const newHistoryRecords: LongShortRatioHistoryRecord[] = newAlerts.map(item => ({
-        symbol: item.symbol,
-        timestamp: item.latest.timestampMs,
-        longShortRatio: item.latest.longShortRatioFloat,
-        changeRate: item.latest.changeRate,
-        notifiedAt: item.latest.timestampMs
-      }))
-
-      // 更新历史记录
-      historyRecords.push(...newHistoryRecords)
-
-      // 再次清理过期记录并保存
-      historyRecords = cleanExpiredRecords(historyRecords)
-      await storage.setItem(historyKey, historyRecords)
-
-      console.log(`💾 历史记录已更新: ${historyRecords.length}条`)
+      // 持久化新历史记录（内部会做一次过期裁剪与远端合并）
+      await historyManager.persist()
+      const historySize = historyManager.getAll().length
+      console.log(`💾 历史记录已更新: ${historySize}条`)
 
       const executionTime = Date.now() - startTime
       console.log(`🎉 任务完成: 监控${symbols.length}个, 通知${newAlerts.length}个, 用时${executionTime}ms`)
@@ -345,8 +299,8 @@ export default defineTask({
         failed: failed.length,
         filtered: filteredData.length,
         newAlerts: newAlerts.length,
-        duplicates: filteredData.length - newAlerts.length,
-        historyRecords: historyRecords.length,
+        duplicates: duplicateInputs.length,
+        historyRecords: historySize,
         executionTimeMs: executionTime
       }
     }
