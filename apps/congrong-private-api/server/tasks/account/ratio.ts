@@ -6,6 +6,7 @@ import { fetchWithRetry } from '../../utils/fetchWithRetry'
 import { buildTaskResult } from '../../utils/taskResult'
 import { buildHeader, appendEntry, assemble, splitMessage } from '../../utils/alerts/message'
 import { filterDuplicates } from '../../utils/alerts/dedupe'
+import { aliasForExchange } from '../../utils/symbolAlias'
 
 // 定义大户多空比值数据接口
 interface LongShortRatioItem {
@@ -50,7 +51,9 @@ export default defineTask({
 
     try {
       // 配置要监控的币种
-      const symbols = (await useStorage('db').getItem('telegram:ol') || []) as string[]
+  let symbols = (await useStorage('db').getItem('telegram:ol') || []) as string[]
+  // Normalize symbols for the target exchange (Binance) via centralized aliases
+  const binanceSymbols = symbols.map(s => aliasForExchange(s, 'binance'))
       const period = '5m' // 可选: "5m","15m","30m","1h","2h","4h","6h","12h","1d"
 
       // 空目标快速返回，避免后续不必要调用
@@ -66,7 +69,7 @@ export default defineTask({
       const periodMinutes = period === '5m' ? 5 : period === '15m' ? 15 : period === '30m' ? 30 : 60
       const limit = Math.ceil(monitoringInterval / periodMinutes) + 1 // +1 确保有足够数据
 
-      console.log(`🚀 大户多空比监控任务开始 - 监控${symbols.length}个币种, 阈值${ratioChangeThreshold}%`)
+  console.log(`🚀 大户多空比监控任务开始 - 监控${binanceSymbols.length}个币种, 阈值${ratioChangeThreshold}%`)
 
       // 获取配置信息
       const config = useRuntimeConfig()
@@ -162,7 +165,7 @@ export default defineTask({
       const successful: ProcessedLongShortRatioData[] = []
       const failed: OpenInterestError[] = []
 
-      for (const symbol of symbols) {
+  for (const symbol of binanceSymbols) {
         try {
           const data = await fetchSymbolData(symbol)
           successful.push(data)
@@ -183,7 +186,7 @@ export default defineTask({
       if (successful.length === 0) status = 'error'
       else if (failed.length > 0) status = 'partial'
       if (status === 'error') {
-        return buildTaskResult({ startTime, result: 'error', counts: { processed: symbols.length, failed: failed.length }, message: '全部失败' })
+  return buildTaskResult({ startTime, result: 'error', counts: { processed: binanceSymbols.length, failed: failed.length }, message: '全部失败' })
       }
 
       // 过滤超过阈值的数据
@@ -196,7 +199,7 @@ export default defineTask({
 
       // 如果没有数据超过阈值，不发送消息
       if (filteredData.length === 0) {
-        return buildTaskResult({ startTime, result: status, counts: { processed: symbols.length, successful: successful.length, failed: failed.length, filtered: 0, newAlerts: 0 }, message: '没有超过阈值的变化' })
+  return buildTaskResult({ startTime, result: status, counts: { processed: binanceSymbols.length, successful: successful.length, failed: failed.length, filtered: 0, newAlerts: 0 }, message: '没有超过阈值的变化' })
       }
       // 使用 HistoryManager 进行重复过滤与转换
       const { newInputs: newAlerts, duplicateInputs, newRecords } = await historyManager.filterNew(
@@ -214,7 +217,7 @@ export default defineTask({
       console.log(`🔍 重复过滤: ${filteredData.length} -> 新${newAlerts.length}, 重复${duplicateInputs.length}`)
 
       if (newRecords.length === 0) {
-        return buildTaskResult({ startTime, result: status, counts: { processed: symbols.length, successful: successful.length, failed: failed.length, filtered: filteredData.length, newAlerts: 0, duplicates: duplicateInputs.length }, message: '重复数据' })
+  return buildTaskResult({ startTime, result: status, counts: { processed: binanceSymbols.length, successful: successful.length, failed: failed.length, filtered: filteredData.length, newAlerts: 0, duplicates: duplicateInputs.length }, message: '重复数据' })
       }
 
       // 构建消息
@@ -247,8 +250,8 @@ export default defineTask({
       const historySize = historyManager.getAll().length
       console.log(`💾 历史记录已更新: ${historySize}条`)
 
-  console.log(`🎉 任务完成: 监控${symbols.length}个, 通知${finalAlerts.length}个`)
-  return buildTaskResult({ startTime, result: status, counts: { processed: symbols.length, successful: successful.length, failed: failed.length, filtered: filteredData.length, newAlerts: finalAlerts.length, duplicates: duplicateInputs.length + softDup.length, historyRecords: historySize } })
+  console.log(`🎉 任务完成: 监控${binanceSymbols.length}个, 通知${finalAlerts.length}个`)
+  return buildTaskResult({ startTime, result: status, counts: { processed: binanceSymbols.length, successful: successful.length, failed: failed.length, filtered: filteredData.length, newAlerts: finalAlerts.length, duplicates: duplicateInputs.length + softDup.length, historyRecords: historySize } })
     }
     catch (error) {
   console.error(`💥 大户多空比监控任务失败: ${error instanceof Error ? error.message : '未知错误'}`)
