@@ -24,7 +24,8 @@ export default defineEventHandler(async (event) => {
     '/api/wx-login',
     '/api/ai',
     '/telegram',
-    '/exchanges'
+    '/exchanges',
+    '/finance'
   ]
 
   // 如果是公共路径或OPTIONS请求，跳过认证
