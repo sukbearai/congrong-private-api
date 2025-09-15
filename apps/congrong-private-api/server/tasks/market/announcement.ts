@@ -35,6 +35,26 @@ interface AnnouncementHistoryRecord {
   notifiedAt: number
 }
 
+// 归一化 URL：忽略查询参数和哈希，去除多余的结尾斜杠，统一大小写的主机名
+function normalizeUrl(input: string): string {
+  try {
+    const u = new URL(input)
+    u.search = ''
+    u.hash = ''
+    // Bybit 链接主体大小写不敏感：规范化 host
+    u.hostname = u.hostname.toLowerCase()
+    // 去除多余结尾斜杠（保留根路径 "/"）
+    if (u.pathname.length > 1 && u.pathname.endsWith('/')) {
+      u.pathname = u.pathname.replace(/\/+$/, '')
+    }
+    return u.toString()
+  }
+  catch {
+    // 如果不是有效 URL，就尽量做一个简单规整：去掉查询/哈希/尾部斜杠
+    return input.split(/[?#]/)[0].replace(/\/+$/, '')
+  }
+}
+
 export default defineTask({
   meta: {
     name: 'market:announcement',
@@ -58,7 +78,8 @@ export default defineTask({
         storage,
         key: historyKey,
         retentionMs: getRetention('announcement'),
-        getFingerprint: r => buildFingerprint([r.url, r.publishTime]),
+        // 使用“规范化后的 URL”作为去重指纹，避免 publishTime 微调或 URL 上附带追踪参数导致重复
+        getFingerprint: r => buildFingerprint([normalizeUrl(r.url)]),
       })
       await manager.load()
 
