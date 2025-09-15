@@ -61,6 +61,7 @@ jobs:
           binanceApiUrl: ${{ secrets.BINANCE_API_URL }}
           bybitApiUrl: ${{ secrets.BYBIT_API_URL }}
           deepseekApiKey: ${{ secrets.DEEPSEEK_API_KEY }}
+          twitterApiKey: ${{ secrets.TWITTER_API_KEY }}
 
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
@@ -80,6 +81,7 @@ jobs:
             binanceApiUrl
             bybitApiUrl
             deepseekApiKey
+            twitterApiKey
         env:
           appId: ${{ secrets.APP_ID }}
           appSecret: ${{ secrets.APP_SECRET }}
@@ -89,3 +91,4 @@ jobs:
           binanceApiUrl: ${{ secrets.BINANCE_API_URL }}
           bybitApiUrl: ${{ secrets.BYBIT_API_URL }}
           deepseekApiKey: ${{ secrets.DEEPSEEK_API_KEY }}
+          twitterApiKey: ${{ secrets.TWITTER_API_KEY }}
