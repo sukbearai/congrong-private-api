@@ -52,6 +52,12 @@ export default defineNitroConfig({
         'access-control-allow-methods': 'POST, GET, OPTIONS',
       },
     },
+    '/api/thirdparty/**': {
+      cors: true,
+      headers: {
+        'access-control-allow-methods': 'POST, GET, OPTIONS',
+      },
+    },
   },
 
   storage: {
