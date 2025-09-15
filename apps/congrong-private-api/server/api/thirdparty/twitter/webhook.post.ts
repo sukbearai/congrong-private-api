@@ -34,10 +34,44 @@ export default defineEventHandler(async (event) => {
     const headerKey = getHeader(event, 'X-API-Key') || getHeader(event, 'x-api-key')
 
     if (!twitter?.apiKey) {
+      // 调试通知：配置缺失
+      ;(async () => {
+        try {
+          const channel = getTelegramChannel('thirdparty:twitter:webhook')
+          const lines: string[] = []
+          lines.push(buildHeader('⚠️ Twitter Webhook 配置错误'))
+          appendEntry(lines, '原因: 服务器未配置 twitter.apiKey')
+          appendEntry(lines, `时间: ${new Date().toISOString()}`)
+          const msg = assemble(lines)
+          const parts = splitMessage(msg)
+          for (const part of parts) {
+            await bot.api.sendMessage(channel, part)
+          }
+        }
+        catch (_) { /* 忽略调试通知失败 */ }
+      })()
       return createErrorResponse('服务器未配置 twitter.apiKey', 500)
     }
 
     if (!headerKey || headerKey !== twitter.apiKey) {
+      // 调试通知：鉴权失败（遮蔽提供的 key）
+      ;(async () => {
+        try {
+          const channel = getTelegramChannel('thirdparty:twitter:webhook')
+          const mask = (v?: string | null) => (v ? `${v.slice(0, 3)}***${v.slice(-3)}` : 'null')
+          const lines: string[] = []
+          lines.push(buildHeader('🚫 Twitter Webhook 未授权'))
+          appendEntry(lines, `提供的 X-API-Key: ${mask(headerKey || null)}`)
+          appendEntry(lines, '匹配结果: 不一致')
+          appendEntry(lines, `时间: ${new Date().toISOString()}`)
+          const msg = assemble(lines)
+          const parts = splitMessage(msg)
+          for (const part of parts) {
+            await bot.api.sendMessage(channel, part)
+          }
+        }
+        catch (_) { /* 忽略调试通知失败 */ }
+      })()
       return createErrorResponse('Unauthorized request: invalid X-API-Key', 401)
     }
 
@@ -46,6 +80,27 @@ export default defineEventHandler(async (event) => {
     const validation = twitterWebhookSchema.safeParse(body)
     if (!validation.success) {
       const errorMessages = validation.error.errors.map(e => e.message).join('; ')
+      // 调试通知：请求体验证失败
+      ;(async () => {
+        try {
+          const channel = getTelegramChannel('thirdparty:twitter:webhook')
+          const preview = (() => {
+            try { return JSON.stringify(body).slice(0, 400) }
+            catch { return '[无法序列化请求体]' }
+          })()
+          const lines: string[] = []
+          lines.push(buildHeader('❌ Twitter Webhook 验证失败'))
+          appendEntry(lines, `错误: ${errorMessages}`)
+          appendEntry(lines, `请求体片段: ${preview}`)
+          appendEntry(lines, `时间: ${new Date().toISOString()}`)
+          const msg = assemble(lines)
+          const parts = splitMessage(msg)
+          for (const part of parts) {
+            await bot.api.sendMessage(channel, part)
+          }
+        }
+        catch (_) { /* 忽略调试通知失败 */ }
+      })()
       return createErrorResponse(errorMessages, 400)
     }
 
@@ -90,6 +145,26 @@ export default defineEventHandler(async (event) => {
     }, 'Webhook received')
   }
   catch (error) {
+    // 调试通知：处理过程异常
+    ;(async () => {
+      try {
+        const channel = getTelegramChannel('thirdparty:twitter:webhook')
+        const lines: string[] = []
+        lines.push(buildHeader('🔥 Twitter Webhook 处理异常'))
+        const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+        appendEntry(lines, `错误: ${message}`)
+        if (error instanceof Error && error.stack) {
+          appendEntry(lines, `堆栈: ${error.stack.split('\n').slice(0, 3).join(' | ')}`)
+        }
+        appendEntry(lines, `时间: ${new Date().toISOString()}`)
+        const msg = assemble(lines)
+        const parts = splitMessage(msg)
+        for (const part of parts) {
+          await bot.api.sendMessage(channel, part)
+        }
+      }
+      catch (_) { /* 忽略调试通知失败 */ }
+    })()
     return createErrorResponse(error instanceof Error ? error.message : '处理 Webhook 失败', 500)
   }
 })
