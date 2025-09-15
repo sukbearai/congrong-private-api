@@ -14,16 +14,23 @@ const twitterWebhookSchema = z.object({
   event_type: z.string().min(1, 'event_type 不能为空'),
   rule_id: z.string().optional(),
   rule_tag: z.string().optional(),
+  rule_value: z.string().optional(),
   tweets: z.array(z.object({
     id: z.string(),
     text: z.string().optional(),
+    // 兼容 author 字段，并保留额外字段
     author: z.object({
       id: z.string().optional(),
       username: z.string().optional(),
       name: z.string().optional(),
-    }).optional(),
+    }).passthrough().optional(),
+    // 兼容 created_at / createdAt
     created_at: z.string().optional(),
-  })).optional().default([]),
+    createdAt: z.string().optional(),
+    // 常见链接字段（twitterapi.io 示例）
+    url: z.string().url().optional(),
+    twitterUrl: z.string().url().optional(),
+  }).passthrough()).optional().default([]),
   timestamp: z.number().optional(),
 }).passthrough()
 
@@ -31,7 +38,12 @@ export default defineEventHandler(async (event) => {
   try {
     // 校验来源：X-API-Key
     const { twitter } = useRuntimeConfig()
-    const headerKey = getHeader(event, 'X-API-Key') || getHeader(event, 'x-api-key')
+    const headerKey
+      = getHeader(event, 'X-API-Key')
+        || getHeader(event, 'x-api-key')
+        || getHeader(event, 'X-Api-Key')
+        || getHeader(event, 'x-api-Key')
+        || getHeader(event, 'X-API-KEY')
 
     if (!twitter?.apiKey) {
       // 调试通知：配置缺失
@@ -105,6 +117,36 @@ export default defineEventHandler(async (event) => {
     }
 
     const payload = validation.data
+    interface TweetPreview {
+      id: string
+      text?: string
+      author?: { id?: string, username?: string, userName?: string, name?: string }
+      created_at?: string
+      createdAt?: string
+      url?: string
+      twitterUrl?: string
+    }
+
+    // 处理首次验证事件（twitterapi.io 会发送 test_webhook_url）
+    if (payload.event_type === 'test_webhook_url') {
+      ;(async () => {
+        try {
+          const channel = getTelegramChannel('thirdparty:twitter:webhook')
+          const lines: string[] = []
+          lines.push(buildHeader('🧪 Twitter Webhook 验证'))
+          appendEntry(lines, '收到 event_type: test_webhook_url')
+          appendEntry(lines, `时间: ${new Date().toISOString()}`)
+          const msg = assemble(lines)
+          const parts = splitMessage(msg)
+          for (const part of parts) {
+            await bot.api.sendMessage(channel, part)
+          }
+        }
+        catch (_) { /* 忽略调试通知失败 */ }
+      })()
+
+      return createSuccessResponse({ received: true, verification: true, eventType: payload.event_type }, 'Webhook test acknowledged')
+    }
 
     // 可在此处加入持久化/转发逻辑（例如入库、推送到队列等）
     // 发送 Telegram 简报（异步执行，失败不影响响应）
@@ -115,12 +157,19 @@ export default defineEventHandler(async (event) => {
         lines.push(buildHeader('📥 Twitter Webhook'))
         appendEntry(lines, `Event: ${payload.event_type}`)
         appendEntry(lines, `Rule: ${payload.rule_tag || '-'} (${payload.rule_id || '-'})`)
+        if (payload.rule_value) {
+          appendEntry(lines, `Rule Value: ${payload.rule_value}`)
+        }
         appendEntry(lines, `Tweets: ${payload.tweets?.length ?? 0}`)
 
-        const sample = payload.tweets?.slice(0, 3) ?? []
+        const tweets = (payload.tweets as unknown as TweetPreview[]) ?? []
+        const sample = tweets.slice(0, 3)
         for (const t of sample) {
           const preview = (t.text || '').slice(0, 140).replace(/\s+/g, ' ')
-          appendEntry(lines, `• ${t.id}${preview ? ` — ${preview}` : ''}`)
+          // 链接优先顺序：twitterUrl > url > 根据 author/用户名拼接 > 通用 i/web/status
+          const authorUser = t.author?.username || (t.author as any)?.userName
+          const link = (t as any).twitterUrl || (t as any).url || (authorUser ? `https://x.com/${authorUser}/status/${t.id}` : `https://x.com/i/web/status/${t.id}`)
+          appendEntry(lines, `• ${t.id}${preview ? ` — ${preview}` : ''} (${link})`)
         }
 
         const message = assemble(lines)
