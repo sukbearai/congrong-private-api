@@ -36,7 +36,7 @@ const twitterWebhookSchema = z.object({
 
 export default defineEventHandler(async (event) => {
   try {
-    // 校验来源：X-API-Key
+    // 校验来源：X-API-Key !
     const { twitter } = useRuntimeConfig()
     const headerKey
       = getHeader(event, 'X-API-Key')
