@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 /**
  * Open Interest Value / Market Cap (OL/MC) 指标监控任务
  * 数据来源:
@@ -102,9 +103,9 @@ interface HistoryRecord {
   direction?: 'up' | 'down' | 'flat'
 }
 
-const DEFAULT_RATIO_THRESHOLD = 0
 const DEFAULT_CHANGE_THRESHOLD = 3
-const DUPLICATE_TOLERANCE_PERCENT = 0.2 // 0.2 个百分点 (percentage points)
+// 与 open interest 报警保持一致的更严格去重容差，避免相同/近似比率反复推送
+const DUPLICATE_TOLERANCE_PERCENT = 0.05 // 0.05 个百分点 (percentage points)
 const DEDUPE_LOOKBACK_MS = 10 * 60 * 1000
 
 // ---- 交易信号判定默认阈值 ----
@@ -258,6 +259,20 @@ export default defineTask({
         if (!prev || h.notifiedAt > prev.notifiedAt) { latestBySymbol.set(h.symbol, h) }
       }
 
+      // 为没有历史的标的建立基线记录（不推送），以便后续做“相对变化”判断
+      const missingBaseline = computed.filter(i => !latestBySymbol.has(i.symbol))
+      if (missingBaseline.length) {
+        const baselineRecords: HistoryRecord[] = missingBaseline.map(i => ({
+          symbol: i.symbol,
+          ratioPercent: i.ratioPercent,
+          timestamp: i.timestamp,
+          notifiedAt: 0, // 标记为基线，不代表已通知
+          direction: 'flat',
+        }))
+        manager.addRecords(baselineRecords)
+        await manager.persist()
+      }
+
       for (const item of computed) {
         const prev = latestBySymbol.get(item.symbol)
         if (prev) {
@@ -271,25 +286,40 @@ export default defineTask({
 
       const candidates = computed.filter((item) => {
         const cfg = monitorConfigs.find(c => c.symbol === item.symbol)!
-        const ratioThreshold = cfg.ratioThresholdPercent ?? DEFAULT_RATIO_THRESHOLD
+        // 仅以变化阈值作为推送条件，避免重复相同比率
         const changeThreshold = cfg.changeThresholdPercent ?? DEFAULT_CHANGE_THRESHOLD
-        const hitRatio = ratioThreshold > 0 ? item.ratioPercent >= ratioThreshold : false
-        const hitChange = Math.abs(item.ratioChangePercent) >= changeThreshold
-        // 若无历史通知记录且当前也未命中 ratio 阈值，但这是首次采样：允许作为基准（不推送）——此处只筛候选，真正推送再做去重
         const prev = latestBySymbol.get(item.symbol)
-        if (prev) {
-          const delta = item.ratioPercent - prev.ratioPercent
-          const sameDirection = (delta >= 0 && item.ratioChangePercent >= 0) || (delta < 0 && item.ratioChangePercent < 0)
-          if (sameDirection && Math.abs(delta) <= DUPLICATE_TOLERANCE_PERCENT) {
-            // 与上次通知方向一致且差值在容差内 -> 直接过滤掉
-            return false
-          }
+        // 没有历史则不推送，已在上面写入基线
+        if (!prev) {
+          return false
         }
-        return hitRatio || hitChange
+        const delta = item.ratioPercent - prev.ratioPercent
+        const sameDirection = (delta >= 0 && item.ratioChangePercent >= 0) || (delta < 0 && item.ratioChangePercent < 0)
+        // 细小变化直接过滤
+        if (sameDirection && Math.abs(delta) <= DUPLICATE_TOLERANCE_PERCENT) {
+          return false
+        }
+        const hitChange = Math.abs(delta) >= changeThreshold
+        // 仅对“变化超过阈值”的情况推送，避免反复推相同/近似比率
+        // 如需支持“首次穿越 ratio 阈值再推送”，可调整为：
+        // return hitChange || (ratioThreshold > 0 && prev.ratioPercent < ratioThreshold && item.ratioPercent >= ratioThreshold)
+        return hitChange
       })
       console.log(`🔔 初步筛选: ${candidates.length} / ${computed.length}`)
 
       if (!candidates.length) {
+        // 即使没有候选，也写入/更新基线记录，便于后续做差值判断
+        const baselineRecords: HistoryRecord[] = computed.map(i => ({
+          symbol: i.symbol,
+          ratioPercent: i.ratioPercent,
+          timestamp: i.timestamp,
+          notifiedAt: latestBySymbol.get(i.symbol)?.notifiedAt ?? 0,
+          direction: i.ratioChangePercent > 0 ? 'up' : i.ratioChangePercent < 0 ? 'down' : 'flat',
+        }))
+        if (baselineRecords.length) {
+          manager.addRecords(baselineRecords)
+          await manager.persist()
+        }
         return buildTaskResult({ startTime, result: failures.length ? 'partial' : 'ok', message: '无满足阈值的标的', counts: { processed: monitorConfigs.length, successful: computed.length, failed: failures.length, filtered: 0, newAlerts: 0 } })
       }
 
