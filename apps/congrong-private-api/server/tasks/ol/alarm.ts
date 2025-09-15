@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import type {
   BybitApiResponse,
   OpenInterestError,
@@ -136,7 +137,7 @@ export default defineTask({
       lines.push(buildHeader(`📊 未平仓合约监控 (${monitoringInterval}分钟变化)`))
       for (const a of finalAlerts) {
         const changeIcon = a.latest.changeRate > 0 ? '📈' : a.latest.changeRate < 0 ? '📉' : '➡️'
-        appendEntry(lines, `${changeIcon} ${a.symbol}\n  持仓: ${a.latest.openInterestFloat.toLocaleString()}\n  变化: ${a.latest.changeRateFormatted}\n  时间: ${a.latest.formattedTime}`)
+        appendEntry(lines, `${changeIcon} ${a.symbol}\n  持仓: ${String(a.latest.openInterestFloat)}\n  变化: ${a.latest.changeRateFormatted}\n  时间: ${a.latest.formattedTime}`)
       }
       const assembled = assemble(lines)
       const parts = splitMessage(assembled)

@@ -206,7 +206,9 @@ export default defineTask({
           const marketCap = mcMap[cfg.cgId] || 0
           if (!marketCap) { throw new Error('未获取到市值') }
 
-          const oiUsd = oiQty * priceUsed
+          // 优先使用交易所返回的 openInterestValue（若提供），否则自行计算
+          const oiUsdStr = item.openInterestValue || String(oiQty * priceUsed)
+          const oiUsd = Number.parseFloat(oiUsdStr)
           const ratio = marketCap > 0 ? (oiUsd / marketCap) * 100 : 0
 
           const base: OlMcComputedItem = {
@@ -214,15 +216,15 @@ export default defineTask({
             displayName: cfg.displayName,
             category: cfg.category,
             cgId: cfg.cgId,
-            openInterestValue: Number.parseFloat(oiUsd.toFixed(2)),
-            marketCap: Number.parseFloat(marketCap.toFixed(2)),
+            openInterestValue: oiUsd,
+            marketCap,
             ratioPercent: Number.parseFloat(ratio.toFixed(4)),
             ratioChangePercent: 0,
             ratioPercentFormatted: '',
             ratioChangePercentFormatted: '',
             timestamp: Date.now(),
           }
-          return { ...base, _debug: { oiQty, markPrice, indexPrice, lastPrice, priceUsed } } as OlMcComputedItem & { _debug: any }
+          return { ...base, _debug: { oiQty, markPrice, indexPrice, lastPrice, priceUsed }, _raw: { oiUsdStr } } as OlMcComputedItem & { _debug: any, _raw: any }
         })
       }
 
@@ -356,10 +358,11 @@ export default defineTask({
         // 交易信号判定
         item.signal = classifySignal(item, cfg)
         const debug = (item as any)._debug
+        const raw = (item as any)._raw
         const tag = debug ? ` (px:${debug.priceUsed ? (debug.priceUsed === debug.markPrice ? 'mark' : debug.priceUsed === debug.indexPrice ? 'index' : 'last') : '?'})` : ''
         appendEntry(
           lines,
-          `${item.signal.icon} ${cfg.displayName}${tag} (${item.symbol})\n  Ratio: ${item.ratioPercentFormatted} (${item.ratioChangePercentFormatted})\n  Signal: ${item.signal.label} | ${item.signal.note}\n  OI: ${item.openInterestValue.toLocaleString()}  MC: ${item.marketCap.toLocaleString()}\n  时间: ${formatDateTime(item.timestamp)}`,
+          `${item.signal.icon} ${cfg.displayName}${tag} (${item.symbol})\n  Ratio: ${item.ratioPercentFormatted} (${item.ratioChangePercentFormatted})\n  Signal: ${item.signal.label} | ${item.signal.note}\n  OI: ${raw?.oiUsdStr ?? String(item.openInterestValue)}  MC: ${String(item.marketCap)}\n  时间: ${formatDateTime(item.timestamp)}`,
         )
       }
       if (failures.length) { appendEntry(lines, `⚠️ 获取失败: ${failures.map(f => f.symbol).join(', ')}`) }

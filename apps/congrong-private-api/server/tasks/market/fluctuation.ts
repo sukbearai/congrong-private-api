@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import { alertThresholds, getRetention } from '../../config/alertThresholds'
 import { filterDuplicates } from '../../utils/alerts/dedupe'
 import { appendEntry, assemble, buildHeader, splitMessage } from '../../utils/alerts/message'
@@ -20,18 +21,23 @@ interface KlineApiResponse {
 interface CryptoPriceData {
   symbol: string
   currentPrice: number
+  currentPriceStr: string
   previousPrice: number
+  previousPriceStr: string
   changeAmount: number
   changeRate: number
   changeRateFormatted: string
   highPrice: number
+  highPriceStr: string
   lowPrice: number
+  lowPriceStr: string
   volume: number
   turnover: number
   formattedTime: string
   timestamp: number
   averagePrice: number
   averagePriceFormatted: string
+  averagePriceStr: string
 }
 
 interface MonitorConfig {
@@ -161,6 +167,7 @@ export default defineTask({
           // 获取最新K线数据
           const latestKline = apiResponse.result.list[0]
           const currentPrice = Number.parseFloat(latestKline[4]) // closePrice
+          const currentPriceStr = latestKline[4]
           const volume = Number.parseFloat(latestKline[5]) // volume
           const turnover = Number.parseFloat(latestKline[6]) // turnover
           const timestamp = Number.parseInt(latestKline[0])
@@ -168,6 +175,7 @@ export default defineTask({
           // 计算监控时间段内的价格变化
           const monitorPeriod = monitorConfig.monitorPeriodMinutes || 5
           let previousPrice = currentPrice
+          let previousPriceStr = currentPriceStr
           let changeAmount = 0
           let changeRate = 0
 
@@ -175,11 +183,13 @@ export default defineTask({
           if (apiResponse.result.list.length > monitorPeriod) {
             const periodAgoKline = apiResponse.result.list[monitorPeriod]
             previousPrice = Number.parseFloat(periodAgoKline[4])
+            previousPriceStr = periodAgoKline[4]
           }
           else if (apiResponse.result.list.length > 1) {
             // 如果K线数据不足监控时间段，则使用最早的K线
             const earliestKline = apiResponse.result.list[apiResponse.result.list.length - 1]
             previousPrice = Number.parseFloat(earliestKline[4])
+            previousPriceStr = earliestKline[4]
           }
 
           // 计算变化
@@ -189,13 +199,21 @@ export default defineTask({
           // 计算监控时间段内的最高价和最低价
           let periodHighPrice = currentPrice
           let periodLowPrice = currentPrice
+          let periodHighPriceStr = currentPriceStr
+          let periodLowPriceStr = currentPriceStr
           const periodKlines = apiResponse.result.list.slice(0, Math.min(monitorPeriod, apiResponse.result.list.length))
 
           for (const kline of periodKlines) {
             const high = Number.parseFloat(kline[2])
             const low = Number.parseFloat(kline[3])
-            periodHighPrice = Math.max(periodHighPrice, high)
-            periodLowPrice = Math.min(periodLowPrice, low)
+            if (high > periodHighPrice) {
+              periodHighPrice = high
+              periodHighPriceStr = kline[2]
+            }
+            if (low < periodLowPrice) {
+              periodLowPrice = low
+              periodLowPriceStr = kline[3]
+            }
           }
 
           // 计算成交量加权平均价格 (VWAP)
@@ -210,22 +228,28 @@ export default defineTask({
           }
 
           const averagePrice = totalVolume > 0 ? totalWeightedPrice / totalVolume : currentPrice
+          const averagePriceStr = String(averagePrice)
 
           return {
             symbol: monitorConfig.symbol,
             currentPrice,
+            currentPriceStr,
             previousPrice,
-            changeAmount: Number.parseFloat(changeAmount.toFixed(2)),
-            changeRate: Number.parseFloat(changeRate.toFixed(4)),
+            previousPriceStr,
+            changeAmount,
+            changeRate,
             changeRateFormatted: `${changeRate >= 0 ? '+' : ''}${changeRate.toFixed(2)}%`,
             highPrice: periodHighPrice,
+            highPriceStr: periodHighPriceStr,
             lowPrice: periodLowPrice,
+            lowPriceStr: periodLowPriceStr,
             volume,
             turnover,
             timestamp,
             formattedTime: formatDateTime(timestamp),
-            averagePrice: Number.parseFloat(averagePrice.toFixed(2)),
-            averagePriceFormatted: `$${averagePrice.toLocaleString()}`,
+            averagePrice,
+            averagePriceFormatted: `$${averagePriceStr}`,
+            averagePriceStr,
           }
         })
       }
@@ -233,7 +257,7 @@ export default defineTask({
       // 获取所有币种的数据 - 串行执行避免API限制
       const monitorResults: MonitorResult[] = []
 
-      for (const [index, monitorConfig] of monitorConfigs.entries()) {
+      for (const [_index, monitorConfig] of monitorConfigs.entries()) {
         try {
           const data = await fetchCryptoKlineData(monitorConfig)
           const shouldNotify = Math.abs(data.changeRate) > monitorConfig.priceChangeThreshold
@@ -256,18 +280,23 @@ export default defineTask({
             data: {
               symbol: '',
               currentPrice: 0,
+              currentPriceStr: '0',
               previousPrice: 0,
+              previousPriceStr: '0',
               changeAmount: 0,
               changeRate: 0,
               changeRateFormatted: '0.00%',
               highPrice: 0,
+              highPriceStr: '0',
               lowPrice: 0,
+              lowPriceStr: '0',
               volume: 0,
               turnover: 0,
               formattedTime: '',
               timestamp: 0,
               averagePrice: 0,
               averagePriceFormatted: '$0',
+              averagePriceStr: '0',
             },
             shouldNotify: false,
             isSignificantChange: false,
@@ -342,7 +371,7 @@ export default defineTask({
           const trendIcon = data.changeRate > 0 ? '📈' : '📉'
           const monitorPeriod = config.monitorPeriodMinutes || 5
 
-          appendEntry(lines, `${alertIcon} ${config.displayName} ${data.symbol} 重大异动 ${alertIcon}\n  ${trendIcon} 变化: ${data.changeRateFormatted}\n  当前: $${data.currentPrice.toLocaleString()}  ${monitorPeriod}分钟前: $${data.previousPrice.toLocaleString()}\n  VWAP: ${data.averagePriceFormatted} 高: $${data.highPrice.toLocaleString()} 低: $${data.lowPrice.toLocaleString()}\n  时间: ${data.formattedTime}`)
+          appendEntry(lines, `${alertIcon} ${config.displayName} ${data.symbol} 重大异动 ${alertIcon}\n  ${trendIcon} 变化: ${data.changeRateFormatted}\n  当前: $${data.currentPriceStr}  ${monitorPeriod}分钟前: $${data.previousPriceStr}\n  VWAP: $${data.averagePriceStr} 高: $${data.highPriceStr} 低: $${data.lowPriceStr}\n  时间: ${data.formattedTime}`)
         }
       }
 
@@ -354,7 +383,7 @@ export default defineTask({
           const changeIcon = data.changeRate > 0 ? '📈' : '📉'
           const monitorPeriod = config.monitorPeriodMinutes || 5
 
-          appendEntry(lines, `${changeIcon} ${config.displayName} (${data.symbol})\n  变化: ${data.changeRateFormatted} 当前: $${data.currentPrice.toLocaleString()}  ${monitorPeriod}分钟前: $${data.previousPrice.toLocaleString()}  VWAP: ${data.averagePriceFormatted}\n  时间: ${data.formattedTime}`)
+          appendEntry(lines, `${changeIcon} ${config.displayName} (${data.symbol})\n  变化: ${data.changeRateFormatted} 当前: $${data.currentPriceStr}  ${monitorPeriod}分钟前: $${data.previousPriceStr}  VWAP: $${data.averagePriceStr}\n  时间: ${data.formattedTime}`)
         }
       }
 
