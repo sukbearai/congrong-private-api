@@ -22,6 +22,10 @@
  */
 export default defineEventHandler(async (event) => {
   try {
+  // 使用 Formula.js 的财务函数（RATE/PV），并在必要时回退到当前的二分法求解
+  // 说明：Formula.js 要求现金流符号相反（pv 与 pmt 方向相反），且 type=1 表示先付（含当月）
+  const { RATE, PV } = await import('@formulajs/formulajs')
+
     const query = getQuery(event)
 
     // 使用 zod 做参数校验与转换（项目中已全局可用）
@@ -57,11 +61,11 @@ export default defineEventHandler(async (event) => {
       return isDue ? pvOrd * (1 + i) : pvOrd
     }
 
-    // 求解 i：使得 pvAnnuity(i, months, monthly, due) = pv
+  // 求解 i：使得 pvAnnuity(i, months, monthly, due) = pv
     const f = (i: number) => pvAnnuity(i, months, monthly, due ?? true) - pv
 
     // 先用区间扩张 + 二分法（稳健）
-    const solveRate = (): number => {
+  const solveRate = (): number => {
       let lo = 0
       let hi = 1 // 初始上界：100% 月利率
       let fLo = f(0)
@@ -100,12 +104,43 @@ export default defineEventHandler(async (event) => {
       return (lo + hi) / 2
     }
 
-  const monthlyRate = solveRate()
+    // 优先用 Formula.js 的 RATE，失败则回退到本地二分法
+    const solveRateWithFormulaJS = (): number => {
+      const type = (due ?? true) ? 1 : 0
+      const guesses = [0.01, 0.001, 0.02, 0.05, 0.1]
+      for (const guess of guesses) {
+        try {
+          // 注意：pmt 为支出（负数），pv 为流入（正数）
+          const r = RATE(months, -monthly, pv, 0, type, guess as number)
+          if (typeof r === 'number' && Number.isFinite(r) && r > -0.9999 && r < 10) return r
+        }
+        catch {}
+      }
+      return Number.NaN
+    }
+
+    let monthlyRate = solveRateWithFormulaJS()
+    if (!Number.isFinite(monthlyRate) || monthlyRate < 0) monthlyRate = solveRate()
+
   const ear = Math.pow(1 + monthlyRate, 12) - 1
-  // 按解出的贴现率，用“分期计划的每期金额（= total/months 或传入的 monthly）”计算分期总额（名义 5999）的现值
-  const pvDue = pvAnnuity(monthlyRate, months, monthly, true)
-  const pvOrd = pvAnnuity(monthlyRate, months, monthly, false)
-  // 和入参 pv 在数学上会接近（若 monthly = total/months 且 due=true），这里同时返回两种口径，避免歧义
+    // 用库函数 PV 计算两种口径的现值（保持与上方 RATE 的符号约定一致：pmt 为负数）
+    const pvDueRaw = PV(monthlyRate, months, -monthly, 0, 1) as unknown
+    const pvOrdRaw = PV(monthlyRate, months, -monthly, 0, 0) as unknown
+    const pvDue = (typeof pvDueRaw === 'number' && Number.isFinite(pvDueRaw))
+      ? pvDueRaw
+      : pvAnnuity(monthlyRate, months, monthly, true)
+    const pvOrd = (typeof pvOrdRaw === 'number' && Number.isFinite(pvOrdRaw))
+      ? pvOrdRaw
+      : pvAnnuity(monthlyRate, months, monthly, false)
+
+    // 额外：对“名义总额（如 5999）对应的等额分期计划（PMT=total/months）”计算折现值
+    // 按题意：PV = PMT * (1 - (1 + i)^(-n)) / i * (1 + i)
+    const pmtNominal = total / months
+    const pvNominalOrd = monthlyRate === 0
+      ? pmtNominal * months
+      : pmtNominal * (1 - Math.pow(1 + monthlyRate, -months)) / monthlyRate
+    const pvNominalDue = pvNominalOrd * (1 + monthlyRate)
+    // 和入参 pv 在数学上会接近（若 monthly = total/months 且 due=true），这里同时返回两种口径，避免歧义
 
     const toFixedNum = (x: number, p: number) => Number.isFinite(x) ? Number(x.toFixed(p)) : x
 
@@ -123,6 +158,8 @@ export default defineEventHandler(async (event) => {
         nominalTotal: toFixedNum(monthly * months, 2), // 名义总额（应等于 total）
         presentValueFromInstallmentsDue: toFixedNum(pvDue, 2), // 先付（含当月）口径的现值
         presentValueFromInstallmentsOrdinary: toFixedNum(pvOrd, 2), // 期末（不含当月）口径的现值
+  presentValueOfNominalTotalDue: toFixedNum(pvNominalDue, 2), // 使用 PMT=total/months 计算“5999”的折现值（先付）
+  presentValueOfNominalTotalOrdinary: toFixedNum(pvNominalOrd, 2), // 使用 PMT=total/months 计算（期末）
       },
       notes: {
         paymentTiming: (due ?? true) ? 'annuity-due (含当月/先付)' : 'ordinary annuity (期末/后付)',
