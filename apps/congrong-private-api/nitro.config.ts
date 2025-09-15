@@ -95,6 +95,9 @@ export default defineNitroConfig({
       apiKey: process.env.coingeckoApiKey,
       apiUrl: process.env.coingeckoApiUrl,
     },
+    twitter: {
+      apiKey: process.env.twitterApiKey,
+    },
   },
 
   preset: 'cloudflare_module',
