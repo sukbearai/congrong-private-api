@@ -6,8 +6,7 @@ const INSTALLED_KEY = Symbol('X_DEV_TOOLS_UI_Installed')
 
 export function createInstaller(components: Plugin[] = []) {
   const install = (app: App) => {
-    if ((app as any)[INSTALLED_KEY])
-      return
+    if ((app as any)[INSTALLED_KEY]) { return }
 
     // Install ElementPlusIconsVue
     for (const [key, component] of Object.entries(ElementPlusIconsVue)) {

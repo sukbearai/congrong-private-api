@@ -1,9 +1,9 @@
 <script lang='ts' setup>
-import { computed, ref } from 'vue'
-import { ElButton, ElUpload } from 'element-plus'
 import type { UploadFile, UploadFiles, UploadInstance } from 'element-plus'
-import { parseExcel } from '@x-dev-uni/utils'
 import type { XElUploadProps } from './props'
+import { parseExcel } from '@x-dev-uni/utils'
+import { ElButton, ElUpload } from 'element-plus'
+import { computed, ref } from 'vue'
 
 defineOptions({
   name: 'XElUpload',

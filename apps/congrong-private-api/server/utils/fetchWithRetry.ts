@@ -15,11 +15,11 @@ export async function fetchWithRetry(url: string, init: RequestInit = {}, option
     maxDelayMs = 4000,
     jitter = true,
     retryOn = (res, err) => {
-      if (err) return true
-      if (!res) return true
-      if (res.status >= 500 || res.status === 429) return true
+      if (err) { return true }
+      if (!res) { return true }
+      if (res.status >= 500 || res.status === 429) { return true }
       return false
-    }
+    },
   } = options
 
   let attempt = 0
@@ -31,14 +31,15 @@ export async function fetchWithRetry(url: string, init: RequestInit = {}, option
     try {
       const res = await fetch(url, { ...init, signal: controller.signal })
       clearTimeout(t)
-      if (!retryOn(res, null)) return res
+      if (!retryOn(res, null)) { return res }
       lastError = new Error(`Retryable status ${res.status}`)
-    } catch (e) {
+    }
+    catch (e) {
       clearTimeout(t)
       lastError = e
-      if (!retryOn(null, e)) throw e
+      if (!retryOn(null, e)) { throw e }
     }
-    if (attempt === retries) break
+    if (attempt === retries) { break }
     const backoff = Math.min(baseDelayMs * 2 ** attempt, maxDelayMs)
     const sleep = jitter ? backoff * (0.5 + Math.random() * 0.5) : backoff
     await new Promise(r => setTimeout(r, sleep))

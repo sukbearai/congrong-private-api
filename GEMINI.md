@@ -1,4 +1,3 @@
-
 # GEMINI.md
 
 This file provides a comprehensive overview of the project for the Gemini AI agent.
@@ -38,11 +37,13 @@ This is a mini-program full-stack solution based on `x-dev-uni` and `nitro cloud
 ### Getting Started
 
 1.  **Install dependencies:**
+
     ```bash
     pnpm install
     ```
 
 2.  **Run the backend development server:**
+
     ```bash
     pnpm --filter=congrong-private-api dev
     ```
@@ -54,20 +55,22 @@ This is a mini-program full-stack solution based on `x-dev-uni` and `nitro cloud
 
 ### Other useful commands
 
--   **Linting:**
-    ```bash
-    pnpm lint
-    ```
+- **Linting:**
 
--   **Building for production:**
-    ```bash
-    pnpm build
-    ```
+  ```bash
+  pnpm lint
+  ```
 
--   **Database migration:**
-    ```bash
-    pnpm --filter=congrong-private-api migrate:db
-    ```
+- **Building for production:**
+
+  ```bash
+  pnpm build
+  ```
+
+- **Database migration:**
+  ```bash
+  pnpm --filter=congrong-private-api migrate:db
+  ```
 
 ## Development Conventions
 

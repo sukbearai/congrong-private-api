@@ -4,8 +4,8 @@ export default icebreaker({
   vue: true,
   tailwindcss: true,
   weapp: true,
-  },{
-    ignores: [
-      '**/uni_modules/**',
-    ],
-  })
+}, {
+  ignores: [
+    '**/uni_modules/**',
+  ],
+})

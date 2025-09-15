@@ -10,7 +10,7 @@ export default defineEventHandler(async (event) => {
   try {
     // 获取查询参数
     const query = getQuery(event)
-    const { binance} = useRuntimeConfig()
+    const { binance } = useRuntimeConfig()
 
     // 验证参数
     const schema = z.object({
@@ -39,7 +39,6 @@ export default defineEventHandler(async (event) => {
         'Content-Type': 'application/json',
       },
     })
-
 
     // 检查HTTP响应状态
     if (!response.ok) {

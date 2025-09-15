@@ -22,9 +22,10 @@ export default defineEventHandler(async (event) => {
       .set({ title, content, wechatUrl, updatedAt: Date.now() })
       .where(eq(announcementTable.id, id))
       .returning()
-    if (!updated) return createErrorResponse('公告不存在', 404)
+    if (!updated) { return createErrorResponse('公告不存在', 404) }
     return createSuccessResponse(updated, '公告更新成功')
-  } catch (error) {
+  }
+  catch (error) {
     return createErrorResponse(error instanceof Error ? error.message : '公告更新失败', 500)
   }
 })

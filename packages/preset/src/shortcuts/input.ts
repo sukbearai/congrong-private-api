@@ -10,8 +10,7 @@ const Size: Record<SizeType, string> = {
 
 export const input: CustomShortcut[] = [
   [/^input-(.+)$/, ([, s], { theme }) => {
-    if (s in Size)
-      return Size[s as SizeType]
+    if (s in Size) { return Size[s as SizeType] }
     return resolveRuleWithContext(s, theme, '--onu-color-context')
   }],
   ['input-bordered', `border-op-100`],

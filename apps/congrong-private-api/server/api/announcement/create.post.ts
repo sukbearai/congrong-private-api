@@ -19,12 +19,16 @@ export default defineEventHandler(async (event) => {
     }
     const { userId, title, content, wechatUrl } = validationResult.data
     const [inserted] = await event.context.db.insert(announcementTable).values({
-      userId, title, content, wechatUrl,
+      userId,
+      title,
+      content,
+      wechatUrl,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }).returning()
     return createSuccessResponse(inserted, '公告创建成功')
-  } catch (error) {
+  }
+  catch (error) {
     return createErrorResponse(error instanceof Error ? error.message : '公告创建失败', 500)
   }
 })

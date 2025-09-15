@@ -12,7 +12,7 @@ export default defineNitroConfig({
 
   scheduledTasks: {
     // Run `cms:update` task every minute
-    '* * * * *': ['ol:mc','ol:alarm','market:fluctuation','market:announcement','funding:rate','account:ratio'],
+    '* * * * *': ['ol:mc', 'ol:alarm', 'market:fluctuation', 'market:announcement', 'funding:rate', 'account:ratio'],
   },
 
   routeRules: {
@@ -93,8 +93,8 @@ export default defineNitroConfig({
     },
     coingecko: {
       apiKey: process.env.coingeckoApiKey,
-      apiUrl: process.env.coingeckoApiUrl
-    },  
+      apiUrl: process.env.coingeckoApiUrl,
+    },
   },
 
   preset: 'cloudflare_module',

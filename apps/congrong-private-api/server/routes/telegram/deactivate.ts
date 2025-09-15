@@ -1,6 +1,5 @@
 export default eventHandler(async () => {
   try {
-    
     // 删除 webhook
     const success = await bot.api.deleteWebhook({
       drop_pending_updates: true,

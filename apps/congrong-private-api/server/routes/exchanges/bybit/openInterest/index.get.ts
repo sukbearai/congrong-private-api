@@ -1,23 +1,16 @@
-import type { BybitApiResponse } from './types'
-import type { 
-  OpenInterestLatestItem, 
-  ProcessedOpenInterestData, 
-  OpenInterestError, 
-  MultipleOpenInterestResponse 
-} from './types'
-
+import type { BybitApiResponse, MultipleOpenInterestResponse, OpenInterestError, OpenInterestLatestItem, ProcessedOpenInterestData } from './types'
 
 // 创建全局请求队列实例
-const requestQueue = new RequestQueue({ 
+const requestQueue = new RequestQueue({
   maxRandomDelay: 5000, // 最大随机延迟5秒
-  minDelay: 2000         // 最小延迟2秒
+  minDelay: 2000, // 最小延迟2秒
 })
 
 /**
  * 获取Bybit未平仓合约数量
  * 返回指定交易对的未平仓合约数量最新数据
  * 使用: GET /exchanges/bybit/openInterest
- * 参数: 
+ * 参数:
  *   - symbol: 合约名称，支持单个或多个（逗号分隔），如 BTCUSDT 或 BTCUSDT,ETHUSDT
  *   - category: 产品类型 (linear, inverse) - 可选，默认linear
  *   - intervalTime: 时间粒度 (5min, 15min, 30min, 1h, 4h, 1d) - 可选，默认5min
@@ -42,9 +35,9 @@ export default defineEventHandler(async (event) => {
       intervalTime: z.enum(['5min', '15min', '30min', '1h', '4h', '1d'], {
         invalid_type_error: 'intervalTime 必须是 5min, 15min, 30min, 1h, 4h, 1d 中的一个',
       }).default('5min'),
-      startTime: z.string().optional().transform(val => val ? parseInt(val) : undefined),
-      endTime: z.string().optional().transform(val => val ? parseInt(val) : undefined),
-      limit: z.string().optional().transform(val => val ? parseInt(val) : 2), // 默认2条数据
+      startTime: z.string().optional().transform(val => val ? Number.parseInt(val) : undefined),
+      endTime: z.string().optional().transform(val => val ? Number.parseInt(val) : undefined),
+      limit: z.string().optional().transform(val => val ? Number.parseInt(val) : 2), // 默认2条数据
       cursor: z.string().optional(),
     })
 
@@ -81,10 +74,10 @@ export default defineEventHandler(async (event) => {
           intervalTime,
         })
 
-        if (startTime) params.append('startTime', startTime.toString())
-        if (endTime) params.append('endTime', endTime.toString())
-        if (limit) params.append('limit', limit.toString())
-        if (cursor) params.append('cursor', cursor)
+        if (startTime) { params.append('startTime', startTime.toString()) }
+        if (endTime) { params.append('endTime', endTime.toString()) }
+        if (limit) { params.append('limit', limit.toString()) }
+        if (cursor) { params.append('cursor', cursor) }
 
         // 构建请求URL
         const url = `${bybitApiUrl}/v5/market/open-interest?${params.toString()}`
@@ -129,8 +122,8 @@ export default defineEventHandler(async (event) => {
       // 如果有第二项数据，计算变化率
       if (apiResponse.result.list.length > 1) {
         const previousItem = apiResponse.result.list[1]
-        const currentOI = parseFloat(latestItem.openInterest)
-        previousOpenInterest = parseFloat(previousItem.openInterest)
+        const currentOI = Number.parseFloat(latestItem.openInterest)
+        previousOpenInterest = Number.parseFloat(previousItem.openInterest)
 
         changeAmount = currentOI - previousOpenInterest
         changeRate = previousOpenInterest !== 0 ? (changeAmount / previousOpenInterest) * 100 : 0
@@ -139,20 +132,20 @@ export default defineEventHandler(async (event) => {
       const processedItem: OpenInterestLatestItem = {
         ...latestItem,
         timestamp: latestItem.timestamp,
-        formattedTime: new Date(parseInt(latestItem.timestamp)).toLocaleString('zh-CN', {
+        formattedTime: new Date(Number.parseInt(latestItem.timestamp)).toLocaleString('zh-CN', {
           year: 'numeric',
           month: '2-digit',
           day: '2-digit',
           hour: '2-digit',
           minute: '2-digit',
-          second: '2-digit'
+          second: '2-digit',
         }),
-        timestampMs: parseInt(latestItem.timestamp),
-        openInterestFloat: parseFloat(latestItem.openInterest),
+        timestampMs: Number.parseInt(latestItem.timestamp),
+        openInterestFloat: Number.parseFloat(latestItem.openInterest),
         previousOpenInterest,
-        changeAmount: parseFloat(changeAmount.toFixed(8)),
-        changeRate: parseFloat(changeRate.toFixed(4)),
-        changeRateFormatted: `${changeRate >= 0 ? '+' : ''}${changeRate.toFixed(2)}%`
+        changeAmount: Number.parseFloat(changeAmount.toFixed(8)),
+        changeRate: Number.parseFloat(changeRate.toFixed(4)),
+        changeRateFormatted: `${changeRate >= 0 ? '+' : ''}${changeRate.toFixed(2)}%`,
       }
 
       return {
@@ -168,9 +161,10 @@ export default defineEventHandler(async (event) => {
       try {
         const apiResponse = await fetchSymbolData(symbols[0])
         const processedData = processApiResponse(apiResponse)
-        
+
         return createSuccessResponse<ProcessedOpenInterestData>(processedData, '获取未平仓合约数量成功')
-      } catch (error) {
+      }
+      catch (error) {
         throw error
       }
     }
@@ -183,16 +177,17 @@ export default defineEventHandler(async (event) => {
           return {
             success: true,
             symbol,
-            data: processApiResponse(apiResponse)
+            data: processApiResponse(apiResponse),
           }
-        } catch (error) {
+        }
+        catch (error) {
           return {
             success: false,
             symbol,
-            error: error instanceof Error ? error.message : '获取数据失败'
+            error: error instanceof Error ? error.message : '获取数据失败',
           }
         }
-      })
+      }),
     )
 
     // 分离成功和失败的结果
@@ -203,16 +198,18 @@ export default defineEventHandler(async (event) => {
       if (result.status === 'fulfilled') {
         if (result.value.success) {
           successful.push(result.value.data)
-        } else {
+        }
+        else {
           failed.push({
             symbol: result.value.symbol,
-            error: result.value.error
+            error: result.value.error,
           })
         }
-      } else {
+      }
+      else {
         failed.push({
           symbol: 'unknown',
-          error: result.reason instanceof Error ? result.reason.message : '请求失败'
+          error: result.reason instanceof Error ? result.reason.message : '请求失败',
         })
       }
     })
@@ -229,8 +226,8 @@ export default defineEventHandler(async (event) => {
       summary: {
         total: symbols.length,
         successful: successful.length,
-        failed: failed.length
-      }
+        failed: failed.length,
+      },
     }, `获取未平仓合约数量完成: ${successful.length}/${symbols.length} 成功`)
   }
   catch (error) {

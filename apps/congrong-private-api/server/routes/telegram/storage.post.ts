@@ -41,47 +41,47 @@ export default defineEventHandler(async (event) => {
         if (data === undefined) {
           return createErrorResponse('action 为 set 时，data 参数不能为空', 400)
         }
-        
+
         await storage.setItem(storageKey, data)
-        
+
         const responseData: StorageResponse = {
           key,
           message: '数据存储成功',
         }
-        
+
         return createSuccessResponse(responseData, '数据存储成功')
       }
 
       case 'get': {
         const result = await storage.getItem(storageKey)
-        
+
         const responseData: StorageResponse = {
           key,
           data: result,
         }
-        
+
         return createSuccessResponse(responseData, '数据获取成功')
       }
 
       case 'delete': {
         await storage.removeItem(storageKey)
-        
+
         const responseData: StorageResponse = {
           key,
           message: '数据删除成功',
         }
-        
+
         return createSuccessResponse(responseData, '数据删除成功')
       }
 
       case 'exists': {
         const exists = await storage.hasItem(storageKey)
-        
+
         const responseData: StorageResponse = {
           key,
           exists,
         }
-        
+
         return createSuccessResponse(responseData, '检查完成')
       }
 

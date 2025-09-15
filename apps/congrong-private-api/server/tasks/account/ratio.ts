@@ -1,12 +1,12 @@
 import type { OpenInterestError } from '../../routes/exchanges/bybit/openInterest/types'
-import { createHistoryManager, buildFingerprint } from '../../utils/historyManager'
 import { alertThresholds, getRetention } from '../../config/alertThresholds'
-import { getTelegramChannel } from '../../utils/telegram'
-import { fetchWithRetry } from '../../utils/fetchWithRetry'
-import { buildTaskResult } from '../../utils/taskResult'
-import { buildHeader, appendEntry, assemble, splitMessage } from '../../utils/alerts/message'
 import { filterDuplicates } from '../../utils/alerts/dedupe'
+import { appendEntry, assemble, buildHeader, splitMessage } from '../../utils/alerts/message'
+import { fetchWithRetry } from '../../utils/fetchWithRetry'
+import { buildFingerprint, createHistoryManager } from '../../utils/historyManager'
 import { aliasForExchange } from '../../utils/symbolAlias'
+import { buildTaskResult } from '../../utils/taskResult'
+import { getTelegramChannel } from '../../utils/telegram'
 
 // 定义大户多空比值数据接口
 interface LongShortRatioItem {
@@ -51,9 +51,9 @@ export default defineTask({
 
     try {
       // 配置要监控的币种
-  let symbols = (await useStorage('db').getItem('telegram:ol') || []) as string[]
-  // Normalize symbols for the target exchange (Binance) via centralized aliases
-  const binanceSymbols = symbols.map(s => aliasForExchange(s, 'binance'))
+      const symbols = (await useStorage('db').getItem('telegram:ol') || []) as string[]
+      // Normalize symbols for the target exchange (Binance) via centralized aliases
+      const binanceSymbols = symbols.map(s => aliasForExchange(s, 'binance'))
       const period = '5m' // 可选: "5m","15m","30m","1h","2h","4h","6h","12h","1d"
 
       // 空目标快速返回，避免后续不必要调用
@@ -62,14 +62,14 @@ export default defineTask({
       }
 
       // 配置监控时间间隔（分钟）
-  const monitoringInterval = 15
-  const ratioChangeThreshold = alertThresholds.longShortRatioChangePercent
+      const monitoringInterval = 15
+      const ratioChangeThreshold = alertThresholds.longShortRatioChangePercent
 
       // 根据监控间隔计算需要获取的数据条数
       const periodMinutes = period === '5m' ? 5 : period === '15m' ? 15 : period === '30m' ? 30 : 60
       const limit = Math.ceil(monitoringInterval / periodMinutes) + 1 // +1 确保有足够数据
 
-  console.log(`🚀 大户多空比监控任务开始 - 监控${binanceSymbols.length}个币种, 阈值${ratioChangeThreshold}%`)
+      console.log(`🚀 大户多空比监控任务开始 - 监控${binanceSymbols.length}个币种, 阈值${ratioChangeThreshold}%`)
 
       // 获取配置信息
       const config = useRuntimeConfig()
@@ -81,13 +81,13 @@ export default defineTask({
         storage,
         key: 'telegram:longShortRatio_alarm_history',
         retentionMs: getRetention('shortWindow'),
-        getFingerprint: r => buildFingerprint([r.symbol, r.timestamp, Math.round(r.longShortRatio * 10000)])
+        getFingerprint: r => buildFingerprint([r.symbol, r.timestamp, Math.round(r.longShortRatio * 10000)]),
       })
 
       // 创建请求队列
       const requestQueue = new RequestQueue({
         maxRandomDelay: 5000,
-        minDelay: 1000
+        minDelay: 1000,
       })
 
       // 创建获取单个symbol数据的函数
@@ -112,7 +112,7 @@ export default defineTask({
           }
 
           // 解析响应数据
-          let apiResponse = (await response.json() as LongShortRatioItem[])
+          let apiResponse = await response.json() as LongShortRatioItem[]
 
           // 反转数组，使最新数据在前
           apiResponse = apiResponse.reverse()
@@ -134,8 +134,8 @@ export default defineTask({
           // 如果有足够的历史数据，计算变化率
           if (apiResponse.length > targetIndex) {
             const targetItem = apiResponse[targetIndex]
-            const currentRatio = parseFloat(latestItem.longShortRatio)
-            previousRatio = parseFloat(targetItem.longShortRatio)
+            const currentRatio = Number.parseFloat(latestItem.longShortRatio)
+            previousRatio = Number.parseFloat(targetItem.longShortRatio)
 
             changeAmount = currentRatio - previousRatio
             changeRate = previousRatio !== 0 ? (changeAmount / previousRatio) * 100 : 0
@@ -143,15 +143,15 @@ export default defineTask({
 
           const processedItem: LongShortRatioItem = {
             ...latestItem,
-            timestampMs: parseInt(latestItem.timestamp),
-            formattedTime: formatDateTime(parseInt(latestItem.timestamp)),
-            longShortRatioFloat: parseFloat(latestItem.longShortRatio),
-            longAccountFloat: parseFloat(latestItem.longAccount),
-            shortAccountFloat: parseFloat(latestItem.shortAccount),
+            timestampMs: Number.parseInt(latestItem.timestamp),
+            formattedTime: formatDateTime(Number.parseInt(latestItem.timestamp)),
+            longShortRatioFloat: Number.parseFloat(latestItem.longShortRatio),
+            longAccountFloat: Number.parseFloat(latestItem.longAccount),
+            shortAccountFloat: Number.parseFloat(latestItem.shortAccount),
             previousRatio,
-            changeAmount: parseFloat(changeAmount.toFixed(4)),
-            changeRate: parseFloat(changeRate.toFixed(4)),
-            changeRateFormatted: `${changeRate >= 0 ? '+' : ''}${changeRate.toFixed(2)}%`
+            changeAmount: Number.parseFloat(changeAmount.toFixed(4)),
+            changeRate: Number.parseFloat(changeRate.toFixed(4)),
+            changeRateFormatted: `${changeRate >= 0 ? '+' : ''}${changeRate.toFixed(2)}%`,
           }
 
           return {
@@ -165,16 +165,17 @@ export default defineTask({
       const successful: ProcessedLongShortRatioData[] = []
       const failed: OpenInterestError[] = []
 
-  for (const symbol of binanceSymbols) {
+      for (const symbol of binanceSymbols) {
         try {
           const data = await fetchSymbolData(symbol)
           successful.push(data)
           console.log(`✅ ${symbol}: 多空比${data.latest.longShortRatioFloat.toFixed(4)}, 变化${data.latest.changeRateFormatted}`)
-        } catch (error) {
+        }
+        catch (error) {
           console.error(`❌ ${symbol} 数据获取失败: ${error instanceof Error ? error.message : '获取数据失败'}`)
           failed.push({
             symbol,
-            error: error instanceof Error ? error.message : '获取数据失败'
+            error: error instanceof Error ? error.message : '获取数据失败',
           })
         }
       }
@@ -183,14 +184,14 @@ export default defineTask({
 
       // 如果所有请求都失败
       let status: 'ok' | 'partial' | 'error' = 'ok'
-      if (successful.length === 0) status = 'error'
-      else if (failed.length > 0) status = 'partial'
+      if (successful.length === 0) { status = 'error' }
+      else if (failed.length > 0) { status = 'partial' }
       if (status === 'error') {
-  return buildTaskResult({ startTime, result: 'error', counts: { processed: binanceSymbols.length, failed: failed.length }, message: '全部失败' })
+        return buildTaskResult({ startTime, result: 'error', counts: { processed: binanceSymbols.length, failed: failed.length }, message: '全部失败' })
       }
 
       // 过滤超过阈值的数据
-      const filteredData = successful.filter(item => {
+      const filteredData = successful.filter((item) => {
         const shouldNotify = Math.abs(item?.latest?.changeRate) > ratioChangeThreshold
         return shouldNotify
       })
@@ -199,7 +200,7 @@ export default defineTask({
 
       // 如果没有数据超过阈值，不发送消息
       if (filteredData.length === 0) {
-  return buildTaskResult({ startTime, result: status, counts: { processed: binanceSymbols.length, successful: successful.length, failed: failed.length, filtered: 0, newAlerts: 0 }, message: '没有超过阈值的变化' })
+        return buildTaskResult({ startTime, result: status, counts: { processed: binanceSymbols.length, successful: successful.length, failed: failed.length, filtered: 0, newAlerts: 0 }, message: '没有超过阈值的变化' })
       }
       // 使用 HistoryManager 进行重复过滤与转换
       const { newInputs: newAlerts, duplicateInputs, newRecords } = await historyManager.filterNew(
@@ -210,14 +211,14 @@ export default defineTask({
           longShortRatio: item.latest.longShortRatioFloat,
           changeRate: item.latest.changeRate,
           // 采用最新数据时间戳作为通知时间
-          notifiedAt: item.latest.timestampMs
-        })
+          notifiedAt: item.latest.timestampMs,
+        }),
       )
 
       console.log(`🔍 重复过滤: ${filteredData.length} -> 新${newAlerts.length}, 重复${duplicateInputs.length}`)
 
       if (newRecords.length === 0) {
-  return buildTaskResult({ startTime, result: status, counts: { processed: binanceSymbols.length, successful: successful.length, failed: failed.length, filtered: filteredData.length, newAlerts: 0, duplicates: duplicateInputs.length }, message: '重复数据' })
+        return buildTaskResult({ startTime, result: status, counts: { processed: binanceSymbols.length, successful: successful.length, failed: failed.length, filtered: filteredData.length, newAlerts: 0, duplicates: duplicateInputs.length }, message: '重复数据' })
       }
 
       // 构建消息
@@ -225,7 +226,7 @@ export default defineTask({
       const { fresh: finalAlerts, duplicates: softDup } = filterDuplicates(newAlerts, a => ({
         symbol: a.symbol,
         direction: a.latest.changeRate > 0 ? 'up' : a.latest.changeRate < 0 ? 'down' : 'flat',
-        value: parseFloat(a.latest.changeRate.toFixed(2)),
+        value: Number.parseFloat(a.latest.changeRate.toFixed(2)),
         timestamp: a.latest.timestampMs,
       }), [], { lookbackMs: 10 * 60 * 1000, toleranceAbs: 0.05, directionSensitive: true })
 
@@ -242,7 +243,7 @@ export default defineTask({
       }
       const assembled = assemble(lines)
       const parts = splitMessage(assembled)
-      for (const p of parts) await bot.api.sendMessage(getTelegramChannel('account:ratio'), p)
+      for (const p of parts) { await bot.api.sendMessage(getTelegramChannel('account:ratio'), p) }
       console.log(`✅ 消息发送成功`)
 
       // 持久化新历史记录（内部会做一次过期裁剪与远端合并）
@@ -250,19 +251,20 @@ export default defineTask({
       const historySize = historyManager.getAll().length
       console.log(`💾 历史记录已更新: ${historySize}条`)
 
-  console.log(`🎉 任务完成: 监控${binanceSymbols.length}个, 通知${finalAlerts.length}个`)
-  return buildTaskResult({ startTime, result: status, counts: { processed: binanceSymbols.length, successful: successful.length, failed: failed.length, filtered: filteredData.length, newAlerts: finalAlerts.length, duplicates: duplicateInputs.length + softDup.length, historyRecords: historySize } })
+      console.log(`🎉 任务完成: 监控${binanceSymbols.length}个, 通知${finalAlerts.length}个`)
+      return buildTaskResult({ startTime, result: status, counts: { processed: binanceSymbols.length, successful: successful.length, failed: failed.length, filtered: filteredData.length, newAlerts: finalAlerts.length, duplicates: duplicateInputs.length + softDup.length, historyRecords: historySize } })
     }
     catch (error) {
-  console.error(`💥 大户多空比监控任务失败: ${error instanceof Error ? error.message : '未知错误'}`)
+      console.error(`💥 大户多空比监控任务失败: ${error instanceof Error ? error.message : '未知错误'}`)
 
       try {
         await bot.api.sendMessage(getTelegramChannel('account:ratio'), `❌ 大户多空比监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
-      } catch (botError) {
+      }
+      catch (botError) {
         console.error('❌ 发送错误消息失败:', botError)
       }
 
-  return buildTaskResult({ startTime, result: 'error', error: error instanceof Error ? error.message : '未知错误', message: '任务失败' })
+      return buildTaskResult({ startTime, result: 'error', error: error instanceof Error ? error.message : '未知错误', message: '任务失败' })
     }
   },
 })

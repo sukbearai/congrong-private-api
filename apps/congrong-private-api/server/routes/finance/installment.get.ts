@@ -24,7 +24,7 @@ export default defineEventHandler(async (event) => {
   try {
   // 使用 Formula.js 的财务函数（RATE/PV），并在必要时回退到当前的二分法求解
   // 说明：Formula.js 要求现金流符号相反（pv 与 pmt 方向相反），且 type=1 表示先付（含当月）
-  const { RATE, PV } = await import('@formulajs/formulajs')
+    const { RATE, PV } = await import('@formulajs/formulajs')
 
     const query = getQuery(event)
 
@@ -33,8 +33,7 @@ export default defineEventHandler(async (event) => {
       total: z.union([z.string(), z.number()]).transform(v => Number(v)),
       months: z.union([z.string(), z.number()]).transform(v => Number.parseInt(String(v), 10)),
       pv: z.union([z.string(), z.number()]).transform(v => Number(v)),
-      due: z.union([z.string(), z.boolean()]).optional()
-        .transform(v => v === undefined ? true : (v === true || v === 'true' || v === '1')),
+      due: z.union([z.string(), z.boolean()]).optional().transform(v => v === undefined ? true : (v === true || v === 'true' || v === '1')),
       monthly: z.union([z.string(), z.number()]).optional().transform(v => v === undefined ? undefined : Number(v)),
       precision: z.union([z.string(), z.number()]).optional().transform(v => v === undefined ? 6 : Number(v)),
     })
@@ -47,25 +46,25 @@ export default defineEventHandler(async (event) => {
 
     const { total, months, pv, due, monthly: monthlyMaybe, precision } = parsed.data
 
-    if (!(months > 0)) return createErrorResponse('months 必须为正整数', 400)
-    if (!(total > 0)) return createErrorResponse('total 必须大于 0', 400)
-    if (!(pv > 0)) return createErrorResponse('pv 必须大于 0', 400)
+    if (!(months > 0)) { return createErrorResponse('months 必须为正整数', 400) }
+    if (!(total > 0)) { return createErrorResponse('total 必须大于 0', 400) }
+    if (!(pv > 0)) { return createErrorResponse('pv 必须大于 0', 400) }
 
     const monthly = monthlyMaybe !== undefined ? monthlyMaybe : total / months
 
     // PV 计算（普通年金与即付年金）
     const pvAnnuity = (i: number, n: number, A: number, isDue: boolean): number => {
-      if (n <= 0) return 0
-      if (i === 0) return A * n // 极限情形
-      const pvOrd = A * (1 - Math.pow(1 + i, -n)) / i
+      if (n <= 0) { return 0 }
+      if (i === 0) { return A * n } // 极限情形
+      const pvOrd = A * (1 - (1 + i) ** -n) / i
       return isDue ? pvOrd * (1 + i) : pvOrd
     }
 
-  // 求解 i：使得 pvAnnuity(i, months, monthly, due) = pv
+    // 求解 i：使得 pvAnnuity(i, months, monthly, due) = pv
     const f = (i: number) => pvAnnuity(i, months, monthly, due ?? true) - pv
 
     // 先用区间扩张 + 二分法（稳健）
-  const solveRate = (): number => {
+    const solveRate = (): number => {
       let lo = 0
       let hi = 1 // 初始上界：100% 月利率
       let fLo = f(0)
@@ -79,8 +78,8 @@ export default defineEventHandler(async (event) => {
         expandCount++
       }
 
-      if (fLo === 0) return 0
-      if (fHi === 0) return hi
+      if (fLo === 0) { return 0 }
+      if (fHi === 0) { return hi }
       if (fLo * fHi > 0) {
         // 仍无变号：用一个小的数值方法兜底（牛顿法/割线法），这里退回到近似法
         // 若 pv 接近总额，则 i 近 0；否则给出业务错误提示
@@ -91,7 +90,7 @@ export default defineEventHandler(async (event) => {
       for (let iter = 0; iter < 200; iter++) {
         const mid = (lo + hi) / 2
         const fMid = f(mid)
-        if (Math.abs(fMid) < 1e-12) return mid
+        if (Math.abs(fMid) < 1e-12) { return mid }
         if (fLo * fMid <= 0) {
           hi = mid
           fHi = fMid
@@ -112,7 +111,7 @@ export default defineEventHandler(async (event) => {
         try {
           // 注意：pmt 为支出（负数），pv 为流入（正数）
           const r = RATE(months, -monthly, pv, 0, type, guess as number)
-          if (typeof r === 'number' && Number.isFinite(r) && r > -0.9999 && r < 10) return r
+          if (typeof r === 'number' && Number.isFinite(r) && r > -0.9999 && r < 10) { return r }
         }
         catch {}
       }
@@ -120,9 +119,9 @@ export default defineEventHandler(async (event) => {
     }
 
     let monthlyRate = solveRateWithFormulaJS()
-    if (!Number.isFinite(monthlyRate) || monthlyRate < 0) monthlyRate = solveRate()
+    if (!Number.isFinite(monthlyRate) || monthlyRate < 0) { monthlyRate = solveRate() }
 
-  const ear = Math.pow(1 + monthlyRate, 12) - 1
+    const ear = (1 + monthlyRate) ** 12 - 1
     // 用库函数 PV 计算两种口径的现值（保持与上方 RATE 的符号约定一致：pmt 为负数）
     const pvDueRaw = PV(monthlyRate, months, -monthly, 0, 1) as unknown
     const pvOrdRaw = PV(monthlyRate, months, -monthly, 0, 0) as unknown
@@ -138,7 +137,7 @@ export default defineEventHandler(async (event) => {
     const pmtNominal = total / months
     const pvNominalOrd = monthlyRate === 0
       ? pmtNominal * months
-      : pmtNominal * (1 - Math.pow(1 + monthlyRate, -months)) / monthlyRate
+      : pmtNominal * (1 - (1 + monthlyRate) ** -months) / monthlyRate
     const pvNominalDue = pvNominalOrd * (1 + monthlyRate)
     // 和入参 pv 在数学上会接近（若 monthly = total/months 且 due=true），这里同时返回两种口径，避免歧义
 
@@ -158,8 +157,8 @@ export default defineEventHandler(async (event) => {
         nominalTotal: toFixedNum(monthly * months, 2), // 名义总额（应等于 total）
         presentValueFromInstallmentsDue: toFixedNum(pvDue, 2), // 先付（含当月）口径的现值
         presentValueFromInstallmentsOrdinary: toFixedNum(pvOrd, 2), // 期末（不含当月）口径的现值
-  presentValueOfNominalTotalDue: toFixedNum(pvNominalDue, 2), // 使用 PMT=total/months 计算“5999”的折现值（先付）
-  presentValueOfNominalTotalOrdinary: toFixedNum(pvNominalOrd, 2), // 使用 PMT=total/months 计算（期末）
+        presentValueOfNominalTotalDue: toFixedNum(pvNominalDue, 2), // 使用 PMT=total/months 计算“5999”的折现值（先付）
+        presentValueOfNominalTotalOrdinary: toFixedNum(pvNominalOrd, 2), // 使用 PMT=total/months 计算（期末）
       },
       notes: {
         paymentTiming: (due ?? true) ? 'annuity-due (含当月/先付)' : 'ordinary annuity (期末/后付)',

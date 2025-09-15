@@ -10,8 +10,7 @@ const Size: Record<SizeType, string> = {
 
 export const button: CustomShortcut[] = [
   [/^btn-(?:size-)?(.+)$/, ([, s], { theme }) => {
-    if (s in Size)
-      return Size[s as SizeType]
+    if (s in Size) { return Size[s as SizeType] }
     return resolveRuleWithContext(s, theme, '--onu-color-context')
   }],
   ['btn-disabled-theme-color', 'disabled:(bg-transparent text-context) dark:disabled:(bg-transparent text-context)!'],

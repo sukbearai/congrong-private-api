@@ -25,7 +25,7 @@ export default defineEventHandler(async (event) => {
     '/api/ai',
     '/telegram',
     '/exchanges',
-    '/finance'
+    '/finance',
   ]
 
   // 如果是公共路径或OPTIONS请求，跳过认证

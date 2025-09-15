@@ -26,9 +26,9 @@ createApp(App).use(XUI).mount('#app')
 使用预设配置 uno.config.ts
 
 ```ts twoslash {7-9}
+import { presetXui } from '@x-dev-uni/preset'
 // uno.config.ts
 import { defineConfig } from 'unocss'
-import { presetXui } from '@x-dev-uni/preset'
 
 export default defineConfig({
   presets: [
@@ -42,8 +42,8 @@ export default defineConfig({
 在 vite.config.ts 引入 unocss
 
 ```ts
-import { defineConfig } from 'vite'
 import UnoCSS from 'unocss/vite'
+import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [

@@ -1,15 +1,15 @@
-import { createHistoryManager, buildFingerprint } from '../../utils/historyManager'
 import { getRetention } from '../../config/alertThresholds'
-import { escapeMarkdown, truncate } from '../../utils/markdown'
-import { getTelegramChannel } from '../../utils/telegram'
+import { appendEntry, assemble, buildHeader, splitMessage } from '../../utils/alerts/message'
 import { fetchWithRetry } from '../../utils/fetchWithRetry'
+import { buildFingerprint, createHistoryManager } from '../../utils/historyManager'
+import { escapeMarkdown, truncate } from '../../utils/markdown'
 import { buildTaskResult } from '../../utils/taskResult'
-import { buildHeader, appendEntry, assemble, splitMessage } from '../../utils/alerts/message'
+import { getTelegramChannel } from '../../utils/telegram'
 
 interface BybitAnnouncementItem {
   title: string
   description: string
-  type: { title: string; key: string }
+  type: { title: string, key: string }
   tags: string[]
   url: string
   dateTimestamp: number
@@ -63,11 +63,11 @@ export default defineTask({
       await manager.load()
 
       // 拉取Bybit公告
-  const response = await fetchWithRetry(apiUrl, { method: 'GET' }, { retries: 2, timeoutMs: 8000 })
-      if (!response.ok) throw new Error(`HTTP 错误: ${response.status}`)
+      const response = await fetchWithRetry(apiUrl, { method: 'GET' }, { retries: 2, timeoutMs: 8000 })
+      if (!response.ok) { throw new Error(`HTTP 错误: ${response.status}`) }
       const data = (await response.json()) as BybitAnnouncementResponse
-      if (data.retCode !== 0) throw new Error(`Bybit API 错误: ${data.retMsg}`)
-  if (!data.result.list || data.result.list.length === 0) return buildTaskResult({ startTime, result: 'ok', message: '无公告', counts: { newAlerts: 0 } })
+      if (data.retCode !== 0) { throw new Error(`Bybit API 错误: ${data.retMsg}`) }
+      if (!data.result.list || data.result.list.length === 0) { return buildTaskResult({ startTime, result: 'ok', message: '无公告', counts: { newAlerts: 0 } }) }
 
       // 首次运行判定
       const isFirstRun = manager.getAll().length === 0
@@ -112,16 +112,18 @@ export default defineTask({
       }
       const assembled = assemble(lines)
       const parts = splitMessage(assembled)
-      for (const p of parts) await bot.api.sendMessage(telegramChannelId, p)
+      for (const p of parts) { await bot.api.sendMessage(telegramChannelId, p) }
 
-  // 已在 filterNew 中放入内存 map，此处只需持久化
-  await manager.persist()
-  return buildTaskResult({ startTime, result: 'ok', counts: { newAlerts: newItems.length, processed: recentList.length } })
-    } catch (error) {
+      // 已在 filterNew 中放入内存 map，此处只需持久化
+      await manager.persist()
+      return buildTaskResult({ startTime, result: 'ok', counts: { newAlerts: newItems.length, processed: recentList.length } })
+    }
+    catch (error) {
       try {
         await bot.api.sendMessage(telegramChannelId, `❌ Bybit新币公告监控任务失败\n⏰ ${formatDateTime(Date.now())}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
-      } catch { }
-  return buildTaskResult({ startTime, result: 'error', error: error instanceof Error ? error.message : '未知错误', message: '任务失败' })
+      }
+      catch { }
+      return buildTaskResult({ startTime, result: 'error', error: error instanceof Error ? error.message : '未知错误', message: '任务失败' })
     }
   },
 })

@@ -1,9 +1,8 @@
-import { h } from 'vue'
 import type { Theme } from 'vitepress'
-import DefaultTheme from 'vitepress/theme'
 import TwoslashFloatingVue from '@shikijs/vitepress-twoslash/client'
-import FloatingVue, { Menu } from 'floating-vue'
 import XUI from '@x-dev-uni/ui'
+import FloatingVue, { Menu } from 'floating-vue'
+import DefaultTheme from 'vitepress/theme'
 
 import 'floating-vue/dist/style.css'
 import '@shikijs/vitepress-twoslash/style.css'

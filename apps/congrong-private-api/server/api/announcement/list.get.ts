@@ -16,8 +16,8 @@ export default defineEventHandler(async (event) => {
       return createErrorResponse(errorMessages, 400)
     }
     const { page, pageSize } = validationResult.data
-    if (page < 1) return createErrorResponse('页码必须大于0', 400)
-    if (pageSize < 1 || pageSize > 100) return createErrorResponse('每页数量必须在1-100之间', 400)
+    if (page < 1) { return createErrorResponse('页码必须大于0', 400) }
+    if (pageSize < 1 || pageSize > 100) { return createErrorResponse('每页数量必须在1-100之间', 400) }
     const offset = (page - 1) * pageSize
     const totalCountResult = await event.context.db
       .select({ count: sql<number>`count(*)` })
@@ -36,7 +36,8 @@ export default defineEventHandler(async (event) => {
       totalPages: Math.ceil(total / pageSize),
     }
     return createSuccessResponse({ list, pagination }, '公告列表获取成功')
-  } catch (error) {
+  }
+  catch (error) {
     return createErrorResponse(error instanceof Error ? error.message : '获取公告列表失败', 500)
   }
 })

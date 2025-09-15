@@ -8,7 +8,7 @@ export default eventHandler(async () => {
       return createErrorResponse(`HTTP 错误: ${response.status}`, response.status)
     }
 
-    const data: { ok: boolean; description: string;result: { id: number; is_bot: boolean; first_name: string; username: string } } = await response.json()
+    const data: { ok: boolean, description: string, result: { id: number, is_bot: boolean, first_name: string, username: string } } = await response.json()
 
     // 检查API是否返回错误
     if ('ok' in data && !data.ok) {

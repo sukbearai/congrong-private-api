@@ -53,7 +53,10 @@ function fixData(data: ArrayBuffer): string {
       [...new Uint8Array(data.slice(l * w, l * w + w))],
     )
   }
-  str += String.fromCharCode.apply(null, [...new Uint8Array(data.slice(data.byteLength - data.byteLength % w))])
+  str += String.fromCharCode.apply(
+    null,
+    [...new Uint8Array(data.slice(data.byteLength - (data.byteLength % w)))],
+  )
   return str
 }
 
@@ -72,9 +75,14 @@ function formatExcelJsonToTableData<T = unknown>(data: ArrayBuffer): SheetTable<
         // eslint-disable-next-line regexp/no-unused-capturing-group
         const regexp = /^[+-]?\d+(\.\d+)?e[+-]?\d+$/i // 匹配科学计数法
 
-        if (worksheet[key].t === 'd' || worksheet[key].t === 'n'
-          && String(worksheet[key].v).trim() !== worksheet[key].w.trim()
-          && !regexp.test(worksheet[key].w.trim())) {
+        if (
+          worksheet[key].t === 'd'
+          || (
+            worksheet[key].t === 'n'
+            && String(worksheet[key].v).trim() !== worksheet[key].w.trim()
+            && !regexp.test(worksheet[key].w.trim())
+          )
+        ) {
           const formattedV = Number(worksheet[key].v).toFixed(8)
           const formattedW = Number.parseFloat(worksheet[key].w).toFixed(8)
           if (formattedV !== formattedW) {
@@ -145,8 +153,9 @@ function formatExcelJsonToTableData<T = unknown>(data: ArrayBuffer): SheetTable<
         if (Array.isArray(row)) {
           let skipTo = -1
           row.forEach((cell, colIndex) => {
-            if (colIndex <= skipTo)
+            if (colIndex <= skipTo) {
               return
+            }
 
             for (const [startCol, endCol] of mergedCols.entries()) {
               if (colIndex === startCol) {
@@ -252,8 +261,10 @@ function getHeaderRow(sheet: XLSX.WorkSheet): string[] {
  * @return {boolean} true: 为excel文件 false: 不为excel文件
  */
 function checkExcelFile(filename: string) {
-  if (!filename)
+  if (!filename) {
     return false
-  const suffix = filename.substr(filename.lastIndexOf('.'))
+  }
+  const dotIndex = filename.lastIndexOf('.')
+  const suffix = dotIndex >= 0 ? filename.slice(dotIndex) : ''
   return suffix === '.xls' || suffix === '.xlsx'
 }

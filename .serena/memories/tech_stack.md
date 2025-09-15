@@ -1,4 +1,3 @@
-
 - **Frontend:** Vue.js, uni-app (for mini-programs), vite, tailwindcss, unocss, pinia (state management), vue-i18n.
 - **Backend:** Nitro (serverless framework), Cloudflare Workers, Drizzle ORM.
 - **Monorepo:** pnpm workspaces.

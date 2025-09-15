@@ -1,7 +1,7 @@
 import type { Theme } from '@unocss/preset-mini'
+import type { PrsetOnuOptions, ResolveOnuOptions } from './types'
 import { mc } from 'magic-color'
 import { definePreset, presetAttributify, presetIcons, presetUno, presetWebFonts } from 'unocss'
-import type { PrsetOnuOptions, ResolveOnuOptions } from './types'
 import { LAYER_ONU_PRESET, LAYER_ONU_UI } from './layers'
 import { preflights } from './preflights'
 import { rules } from './rules'

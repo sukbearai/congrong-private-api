@@ -1,16 +1,16 @@
-import type { 
-  BybitApiResponse, 
-  ProcessedOpenInterestData, 
+import type {
+  BybitApiResponse,
+  OpenInterestError,
   OpenInterestLatestItem,
-  OpenInterestError 
+  ProcessedOpenInterestData,
 } from '../../routes/exchanges/bybit/openInterest/types'
-import { createHistoryManager } from '../../utils/historyManager'
 import { alertThresholds, getRetention } from '../../config/alertThresholds'
-import { getTelegramChannel } from '../../utils/telegram'
-import { fetchWithRetry } from '../../utils/fetchWithRetry'
-import { buildTaskResult } from '../../utils/taskResult'
-import { buildHeader, appendEntry, assemble, splitMessage } from '../../utils/alerts/message'
 import { filterDuplicates } from '../../utils/alerts/dedupe'
+import { appendEntry, assemble, buildHeader, splitMessage } from '../../utils/alerts/message'
+import { fetchWithRetry } from '../../utils/fetchWithRetry'
+import { createHistoryManager } from '../../utils/historyManager'
+import { buildTaskResult } from '../../utils/taskResult'
+import { getTelegramChannel } from '../../utils/telegram'
 
 interface AlarmHistoryRecord {
   symbol: string
@@ -29,12 +29,12 @@ export default defineTask({
       const category = 'linear'
       const intervalTime = '5min'
       const monitoringInterval = 15
-  const openInterestThreshold = alertThresholds.openInterestChangePercent
+      const openInterestThreshold = alertThresholds.openInterestChangePercent
 
       if (!symbols.length) {
         return buildTaskResult({ startTime, result: 'ok', message: '无监控目标', counts: { processed: 0 } })
       }
-      const intervalMinutes = parseInt(intervalTime.replace('min', ''))
+      const intervalMinutes = Number.parseInt(intervalTime.replace('min', ''))
       const limit = Math.ceil(monitoringInterval / intervalMinutes) + 1
 
       console.log(`🚀 未平仓合约监控任务开始 - 监控${symbols.length}个币种, 阈值${openInterestThreshold}%`)
@@ -57,30 +57,30 @@ export default defineTask({
           const params = new URLSearchParams({ category, symbol, intervalTime, limit: limit.toString() })
           const url = `${bybitApiUrl}/v5/market/open-interest?${params.toString()}`
           const response = await fetchWithRetry(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } }, { retries: 2, timeoutMs: 7000 })
-          if (!response.ok) throw new Error(`HTTP 错误: ${response.status}`)
+          if (!response.ok) { throw new Error(`HTTP 错误: ${response.status}`) }
           const apiResponse = await response.json() as BybitApiResponse
-          if (apiResponse.retCode !== 0) throw new Error(`Bybit API 错误: ${apiResponse.retMsg}`)
-          if (!apiResponse.result.list || apiResponse.result.list.length === 0) throw new Error('没有可用数据')
+          if (apiResponse.retCode !== 0) { throw new Error(`Bybit API 错误: ${apiResponse.retMsg}`) }
+          if (!apiResponse.result.list || apiResponse.result.list.length === 0) { throw new Error('没有可用数据') }
           const latestItem = apiResponse.result.list[0]
-          let changeRate = 0, changeAmount = 0, previousOpenInterest = 0
+          let changeRate = 0; let changeAmount = 0; let previousOpenInterest = 0
           const targetIndex = Math.ceil(monitoringInterval / intervalMinutes)
           if (apiResponse.result.list.length > targetIndex) {
             const targetItem = apiResponse.result.list[targetIndex]
-            const currentOI = parseFloat(latestItem.openInterest)
-            previousOpenInterest = parseFloat(targetItem.openInterest)
+            const currentOI = Number.parseFloat(latestItem.openInterest)
+            previousOpenInterest = Number.parseFloat(targetItem.openInterest)
             changeAmount = currentOI - previousOpenInterest
             changeRate = previousOpenInterest !== 0 ? (changeAmount / previousOpenInterest) * 100 : 0
           }
           const processedItem: OpenInterestLatestItem = {
             ...latestItem,
             timestamp: latestItem.timestamp,
-            formattedTime: formatDateTime(parseInt(latestItem.timestamp)),
-            timestampMs: parseInt(latestItem.timestamp),
-            openInterestFloat: parseFloat(latestItem.openInterest),
+            formattedTime: formatDateTime(Number.parseInt(latestItem.timestamp)),
+            timestampMs: Number.parseInt(latestItem.timestamp),
+            openInterestFloat: Number.parseFloat(latestItem.openInterest),
             previousOpenInterest,
-            changeAmount: parseFloat(changeAmount.toFixed(8)),
-            changeRate: parseFloat(changeRate.toFixed(4)),
-            changeRateFormatted: `${changeRate >= 0 ? '+' : ''}${changeRate.toFixed(2)}%`
+            changeAmount: Number.parseFloat(changeAmount.toFixed(8)),
+            changeRate: Number.parseFloat(changeRate.toFixed(4)),
+            changeRateFormatted: `${changeRate >= 0 ? '+' : ''}${changeRate.toFixed(2)}%`,
           }
           return { category: apiResponse.result.category, symbol: apiResponse.result.symbol, latest: processedItem, nextPageCursor: apiResponse.result.nextPageCursor }
         })
@@ -93,15 +93,16 @@ export default defineTask({
           const data = await fetchSymbolData(symbol)
           successful.push(data)
           console.log(`✅ ${symbol}: ${data.latest.changeRateFormatted}`)
-        } catch (e) {
+        }
+        catch (e) {
           console.error(`❌ ${symbol} 数据获取失败: ${e instanceof Error ? e.message : '获取数据失败'}`)
           failed.push({ symbol, error: e instanceof Error ? e.message : '获取数据失败' })
         }
       }
       console.log(`📊 获取结果: 成功${successful.length}个, 失败${failed.length}个`)
       let status: 'ok' | 'partial' | 'error' = 'ok'
-      if (successful.length === 0) status = 'error'
-      else if (failed.length > 0) status = 'partial'
+      if (successful.length === 0) { status = 'error' }
+      else if (failed.length > 0) { status = 'partial' }
       if (status === 'error') {
         return buildTaskResult({ startTime, result: 'error', counts: { processed: symbols.length, successful: 0, failed: failed.length }, message: '全部失败' })
       }
@@ -127,11 +128,11 @@ export default defineTask({
       const { fresh: finalAlerts, duplicates: softDup } = filterDuplicates(newAlerts, a => ({
         symbol: a.symbol,
         direction: a.latest.changeRate > 0 ? 'up' : a.latest.changeRate < 0 ? 'down' : 'flat',
-        value: parseFloat(a.latest.changeRate.toFixed(2)),
+        value: Number.parseFloat(a.latest.changeRate.toFixed(2)),
         timestamp: a.latest.timestampMs,
       }), [], { lookbackMs: 10 * 60 * 1000, toleranceAbs: 0.05, directionSensitive: true })
 
-      let lines: string[] = []
+      const lines: string[] = []
       lines.push(buildHeader(`📊 未平仓合约监控 (${monitoringInterval}分钟变化)`))
       for (const a of finalAlerts) {
         const changeIcon = a.latest.changeRate > 0 ? '📈' : a.latest.changeRate < 0 ? '📉' : '➡️'
@@ -144,15 +145,17 @@ export default defineTask({
       }
       console.log('✅ 消息发送成功')
 
-      if (newRecords.length) await historyManager.persist()
+      if (newRecords.length) { await historyManager.persist() }
       const historyCount = historyManager.getAll().length
       console.log(`💾 历史记录已更新: ${historyCount}条`)
 
-  return buildTaskResult({ startTime, result: status, counts: { processed: symbols.length, successful: successful.length, failed: failed.length, filtered: filteredData.length, newAlerts: newAlerts.length, duplicates: duplicateInputs.length + softDup.length, historyRecords: historyCount }, message: '' })
-    } catch (error) {
-  console.error(`💥 未平仓合约监控任务失败: ${error instanceof Error ? error.message : '未知错误'}`)
-  try { await bot.api.sendMessage(getTelegramChannel('ol:alarm'), `❌ 未平仓合约监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`) } catch {}
-  return buildTaskResult({ startTime, result: 'error', error: error instanceof Error ? error.message : '未知错误', message: '任务失败' })
+      return buildTaskResult({ startTime, result: status, counts: { processed: symbols.length, successful: successful.length, failed: failed.length, filtered: filteredData.length, newAlerts: newAlerts.length, duplicates: duplicateInputs.length + softDup.length, historyRecords: historyCount }, message: '' })
     }
-  }
+    catch (error) {
+      console.error(`💥 未平仓合约监控任务失败: ${error instanceof Error ? error.message : '未知错误'}`)
+      try { await bot.api.sendMessage(getTelegramChannel('ol:alarm'), `❌ 未平仓合约监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`) }
+      catch {}
+      return buildTaskResult({ startTime, result: 'error', error: error instanceof Error ? error.message : '未知错误', message: '任务失败' })
+    }
+  },
 })

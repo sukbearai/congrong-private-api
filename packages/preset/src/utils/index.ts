@@ -83,8 +83,7 @@ export function resolveRuleWithContext(s: string, theme: Theme, key: string) {
   else {
     value = resolveContextColorByKey([undefined, undefined, s] as any, theme, key)
   }
-  if (value)
-    return [value]
+  if (value) { return [value] }
 }
 
 export function isThemeMetaKey(key: string) {

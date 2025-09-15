@@ -25,7 +25,8 @@ export default defineEventHandler(async (event) => {
     }
     await event.context.db.delete(announcementTable).where(eq(announcementTable.id, id))
     return createSuccessResponse(null, '公告删除成功')
-  } catch (error) {
+  }
+  catch (error) {
     return createErrorResponse(error instanceof Error ? error.message : '公告删除失败', 500)
   }
 })

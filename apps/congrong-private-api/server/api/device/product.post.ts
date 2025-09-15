@@ -53,8 +53,8 @@ export default defineEventHandler(async (event) => {
           like(productsTable.deviceIds, `%${deviceId}%`),
           like(productsTable.deviceIds, `${deviceId},%`),
           like(productsTable.deviceIds, `%,${deviceId}%`),
-          like(productsTable.deviceIds, deviceId)
-        )
+          like(productsTable.deviceIds, deviceId),
+        ),
       )
 
     // 将夹杂体质转换为逗号分隔的格式，便于匹配
@@ -93,7 +93,7 @@ export default defineEventHandler(async (event) => {
             checkedImg: product.checkedImg,
             uncheckedImg: product.uncheckedImg,
             deviceIds: product.deviceIds,
-            constitutions: product.constitutions
+            constitutions: product.constitutions,
           }
         }
       }
@@ -111,7 +111,7 @@ export default defineEventHandler(async (event) => {
             checkedImg: product.checkedImg,
             uncheckedImg: product.uncheckedImg,
             deviceIds: product.deviceIds,
-            constitutions: product.constitutions
+            constitutions: product.constitutions,
           }
         }
       }

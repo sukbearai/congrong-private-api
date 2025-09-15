@@ -1,12 +1,13 @@
-
 ### Getting Started
 
 1.  **Install dependencies:**
+
     ```bash
     pnpm install
     ```
 
 2.  **Run the backend development server:**
+
     ```bash
     pnpm --filter=congrong-private-api dev
     ```
@@ -18,17 +19,19 @@
 
 ### Other useful commands
 
--   **Linting:**
-    ```bash
-    pnpm lint
-    ```
+- **Linting:**
 
--   **Building for production:**
-    ```bash
-    pnpm build
-    ```
+  ```bash
+  pnpm lint
+  ```
 
--   **Database migration:**
-    ```bash
-    pnpm --filter=congrong-private-api migrate:db
-    ```
+- **Building for production:**
+
+  ```bash
+  pnpm build
+  ```
+
+- **Database migration:**
+  ```bash
+  pnpm --filter=congrong-private-api migrate:db
+  ```

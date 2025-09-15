@@ -1,4 +1,4 @@
-import { like, or, sql, desc } from 'drizzle-orm'
+import { desc, like, or, sql } from 'drizzle-orm'
 
 const productListSchema = z.object({
   deviceIds: z.string({
@@ -36,15 +36,15 @@ export default defineEventHandler(async (event) => {
 
     // 解析设备ID列表
     const deviceIdArray = deviceIds.split(',').map(id => id.trim())
-    
+
     // 构建查询条件 - 匹配任意一个设备ID
-    const deviceConditions = deviceIdArray.map(deviceId => 
+    const deviceConditions = deviceIdArray.map(deviceId =>
       or(
         like(productsTable.deviceIds, `%${deviceId}%`),
         like(productsTable.deviceIds, `${deviceId},%`),
         like(productsTable.deviceIds, `%,${deviceId}%`),
-        like(productsTable.deviceIds, deviceId)
-      )
+        like(productsTable.deviceIds, deviceId),
+      ),
     )
 
     const whereCondition = or(...deviceConditions)

@@ -51,7 +51,7 @@ outline: deep
 #### Sizes
 
 ```html
-<button btn btn-xs >extra small</button>
+<button btn btn-xs>extra small</button>
 <button btn btn-sm>small</button>
 <button btn btn-md>medium (default size)</button>
 <button btn btn-lg>Button</button>
@@ -79,12 +79,8 @@ outline: deep
   <i i-carbon-add></i>
   Add
 </button>
-<button btn animate-pulse disabled>
-  loading <i inline-block i-carbon-assembly-reference animate-spin />
-</button>
-<button btn rounded-full>
-  Download <i i-carbon-download />
-</button>
+<button btn animate-pulse disabled>loading <i inline-block i-carbon-assembly-reference animate-spin /></button>
+<button btn rounded-full>Download <i i-carbon-download /></button>
 <button btn aspect-square rounded-full class="group">
   <i i-carbon-favorite group-hover:i-carbon-favorite-filled></i>
 </button>
@@ -110,7 +106,7 @@ outline: deep
 
 ```html
 <button btn btn-red hover:btn-red-600>Red</button>
-<button btn="~ yellow hover:yellow-600" >Yellow</button>
+<button btn="~ yellow hover:yellow-600">Yellow</button>
 <button btn o-blue hover:o-blue-600>Blue</button>
 ```
 

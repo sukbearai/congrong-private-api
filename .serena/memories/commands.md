@@ -1,4 +1,3 @@
-
 ### Root
 
 - `pnpm lint`: Lints the code.

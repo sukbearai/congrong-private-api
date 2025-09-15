@@ -2,9 +2,9 @@ import { Bot } from 'grammy'
 
 class TelegramBotSingleton {
   private static instance: Bot | null = null
-  
+
   private constructor() {}
-  
+
   public static getInstance(): Bot {
     if (!TelegramBotSingleton.instance) {
       const telegram = useRuntimeConfig().telegram
@@ -25,7 +25,7 @@ class TelegramBotSingleton {
 
       TelegramBotSingleton.instance = new Bot(telegram.botToken, clientOptions)
     }
-    
+
     return TelegramBotSingleton.instance
   }
 }

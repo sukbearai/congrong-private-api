@@ -10,8 +10,7 @@ const Size: Record<SizeType, string> = {
 
 export const badge: CustomShortcut[] = [
   [/^badge-(.+)$/, ([, s], { theme }) => {
-    if (s in Size)
-      return Size[s as SizeType]
+    if (s in Size) { return Size[s as SizeType] }
     return resolveRuleWithContext(s, theme, '--onu-color-context')
   }],
   ['badge-default', `

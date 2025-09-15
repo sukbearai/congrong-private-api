@@ -12,7 +12,7 @@
  *  - 允许后续平滑替换底层存储 (KV / D1 / JSON / 内存)
  *
  * 使用示例（以未平仓合约告警任务为例）:
- * 
+ *
  * const storage = useStorage('db')
  * const manager = createHistoryManager<OIHistoryRecord>({
  *   storage,
@@ -20,7 +20,7 @@
  *   retentionMs: 2 * 60 * 60 * 1000, // 2小时
  *   getFingerprint: r => `${r.symbol}_${r.timestamp}_${Math.floor(r.openInterest)}`,
  * })
- * 
+ *
  * await manager.load() // 懒加载也可以不手动调用
  * const { newInputs, duplicateInputs, newRecords } = await manager.filterNew(processedAlerts, item => ({
  *   symbol: item.symbol,
@@ -29,7 +29,7 @@
  *   changeRate: item.latest.changeRate,
  *   notifiedAt: item.latest.timestampMs,
  * }))
- * 
+ *
  * if (newRecords.length) {
  *   manager.addRecords(newRecords)
  *   await manager.persist() // 写回存储 (自动做一次过期清理和与远端合并)
@@ -91,32 +91,33 @@ export function createHistoryManager<TRecord extends BaseHistoryRecord>(options:
   let loaded = false
 
   function log(...args: any[]) {
-    if (debug) console.log('[HistoryManager]', key, ...args)
+    if (debug) { console.log('[HistoryManager]', key, ...args) }
   }
 
   async function load() {
-    if (loaded && map) return
+    if (loaded && map) { return }
     const raw = (await storage.getItem(key)) as TRecord[] | null
     map = new Map<string, TRecord>()
     if (raw?.length) {
       for (const r of raw) {
-        if (!r || typeof r !== 'object') continue
+        if (!r || typeof r !== 'object') { continue }
         const fp = safeFingerprint(r)
-        if (fp) map.set(fp, r)
+        if (fp) { map.set(fp, r) }
       }
     }
-  // 先标记 loaded 再调用 prune，避免 prune 内部 ensureLoaded 抛错
-  loaded = true
-  prune() // 初始加载时裁剪
+    // 先标记 loaded 再调用 prune，避免 prune 内部 ensureLoaded 抛错
+    loaded = true
+    prune() // 初始加载时裁剪
     log('loaded', map.size)
   }
 
   function ensureLoaded() {
-    if (!loaded || !map) throw new Error('HistoryManager not loaded. Call load() first or await filterNew/add/persist which load lazily.')
+    if (!loaded || !map) { throw new Error('HistoryManager not loaded. Call load() first or await filterNew/add/persist which load lazily.') }
   }
 
   function safeFingerprint(record: TRecord): string | null {
-    try { return getFingerprint(record) } catch { return null }
+    try { return getFingerprint(record) }
+    catch { return null }
   }
 
   function prune() {
@@ -129,7 +130,7 @@ export function createHistoryManager<TRecord extends BaseHistoryRecord>(options:
         removed++
       }
     }
-    if (removed) log('prune removed', removed, 'remain', map!.size)
+    if (removed) { log('prune removed', removed, 'remain', map!.size) }
   }
 
   function getAll(): TRecord[] {
@@ -148,16 +149,16 @@ export function createHistoryManager<TRecord extends BaseHistoryRecord>(options:
     let added = 0
     for (const r of records) {
       const fp = safeFingerprint(r)
-      if (!fp) continue
+      if (!fp) { continue }
       // 后写覆盖旧值（一般包含最新 changeRate 等）
       map!.set(fp, r)
       added++
     }
-    if (added) log('addRecords added', added, 'total', map!.size)
+    if (added) { log('addRecords added', added, 'total', map!.size) }
   }
 
   async function filterNew<TInput>(inputs: TInput[], toRecord: (input: TInput) => TRecord): Promise<FilterNewResult<TInput, TRecord>> {
-    if (!loaded) await load()
+    if (!loaded) { await load() }
     const newInputs: TInput[] = []
     const duplicateInputs: TInput[] = []
     const newRecords: TRecord[] = []
@@ -172,7 +173,8 @@ export function createHistoryManager<TRecord extends BaseHistoryRecord>(options:
       }
       if (map!.has(fp)) {
         duplicateInputs.push(input)
-      } else {
+      }
+      else {
         newInputs.push(input)
         newRecords.push(rec)
         map!.set(fp, rec)
@@ -183,20 +185,21 @@ export function createHistoryManager<TRecord extends BaseHistoryRecord>(options:
   }
 
   async function persist() {
-    if (!loaded) await load()
+    if (!loaded) { await load() }
     prune()
     // 合并一次“远端最新”，减少覆盖丢数据风险（仍非严格并发安全，仅减轻）
     let remote: TRecord[] = []
     try {
       const raw = (await storage.getItem(key)) as TRecord[] | null
       remote = Array.isArray(raw) ? raw : []
-    } catch {
+    }
+    catch {
       // ignore
     }
     let merged = 0
     for (const r of remote) {
       const fp = safeFingerprint(r)
-      if (!fp) continue
+      if (!fp) { continue }
       if (!map!.has(fp)) {
         // 仍需 retention 过滤
         if (r.notifiedAt && r.notifiedAt >= now() - retentionMs) {
@@ -205,14 +208,14 @@ export function createHistoryManager<TRecord extends BaseHistoryRecord>(options:
         }
       }
     }
-    if (merged) log('merged remote new', merged)
+    if (merged) { log('merged remote new', merged) }
     const all = Array.from(map!.values())
     await storage.setItem(key, all)
     log('persist saved', all.length)
   }
 
   async function clearAll() {
-    if (!loaded) await load()
+    if (!loaded) { await load() }
     map!.clear()
     await storage.setItem(key, [])
     log('cleared')
@@ -239,7 +242,7 @@ export function buildFingerprint(fields: Array<string | number | undefined | nul
 export function createPersistScheduler(fn: () => Promise<void>, delayMs: number) {
   let timer: any = null
   return () => {
-    if (timer) return
+    if (timer) { return }
     timer = setTimeout(async () => {
       timer = null
       await fn()

@@ -1,19 +1,19 @@
 const FeedbackType = {
-  THUMBS_UP: 'thumbs_up',      // 点赞
-  THUMBS_DOWN: 'thumbs_down'   // 点踩
+  THUMBS_UP: 'thumbs_up', // 点赞
+  THUMBS_DOWN: 'thumbs_down', // 点踩
 } as const
 
 // 定义反馈验证模式
 const feedbackSchema = z.object({
   logId: z.string({
-    required_error: '日志ID不能为空'
+    required_error: '日志ID不能为空',
   }).min(1, '日志ID不能为空'),
   type: z.enum([FeedbackType.THUMBS_UP, FeedbackType.THUMBS_DOWN], {
-    required_error: '反馈类型不能为空'
+    required_error: '反馈类型不能为空',
   }),
   comment: z.string().max(500, '评论内容不能超过500个字符').optional(),
   reason: z.string().max(200, '原因不能超过200个字符').optional(),
-  userId: z.string().optional() // 可选的用户ID
+  userId: z.string().optional(), // 可选的用户ID
 })
 
 // 定义响应数据类型
@@ -28,9 +28,9 @@ function getFeedbackScore(type: string): number {
     case FeedbackType.THUMBS_UP:
       return 100 // 正面反馈
     case FeedbackType.THUMBS_DOWN:
-      return 0   // 负面反馈
+      return 0 // 负面反馈
     default:
-      return null   // 中性
+      return null // 中性
   }
 }
 
@@ -78,7 +78,7 @@ export default defineEventHandler(async (event) => {
         userAgent: getHeader(event, 'user-agent'),
         feedback: getFeedbackValue(type),
         score: getFeedbackScore(type),
-      }
+      },
     })
 
     // 构建响应数据
@@ -88,8 +88,8 @@ export default defineEventHandler(async (event) => {
     }
 
     return createSuccessResponse(responseData, '反馈提交成功')
-
-  } catch (error) {
+  }
+  catch (error) {
     return createErrorResponse(
       error instanceof Error ? error.message : '反馈提交失败',
       500,

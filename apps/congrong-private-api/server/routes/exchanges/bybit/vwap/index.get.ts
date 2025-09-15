@@ -1,4 +1,4 @@
-import { BybitApiResponse, InstrumentError, InstrumentInfoItem, KlineApiResponse, KlineData, VWAPCalculation, VWAPData } from "./types"
+import type { BybitApiResponse, InstrumentError, InstrumentInfoItem, KlineApiResponse, KlineData, VWAPCalculation, VWAPData } from './types'
 
 // 定义 JSON 存储 API 写入响应的类型
 interface JsonStorageWriteResponse {
@@ -21,23 +21,25 @@ interface TelegramSendResult {
 // 创建全局请求队列实例
 const requestQueue = new RequestQueue({
   maxRandomDelay: 3000, // 最大随机延迟3秒
-  minDelay: 1000        // 最小延迟1秒
+  minDelay: 1000, // 最小延迟1秒
 })
 
 // 格式化成交额显示
-const formatTurnover = (turnover: number): string => {
+function formatTurnover(turnover: number): string {
   if (turnover >= 1000000000) {
     return `${(turnover / 1000000000).toFixed(2)}B`
-  } else if (turnover >= 1000000) {
+  }
+  else if (turnover >= 1000000) {
     return `${(turnover / 1000000).toFixed(2)}M`
-  } else if (turnover >= 1000) {
+  }
+  else if (turnover >= 1000) {
     return `${(turnover / 1000).toFixed(2)}K`
   }
   return turnover.toFixed(2)
 }
 
 // 发送消息到Telegram频道的函数 - 使用bot实例
-const sendToTelegram = async (message: string, channelId?: string): Promise<TelegramSendResult> => {
+async function sendToTelegram(message: string, channelId?: string): Promise<TelegramSendResult> {
   try {
     // 使用默认频道ID或传入的频道ID
     const targetChannelId = channelId || '-1002663808019' // 使用你的频道ID作为默认值
@@ -48,20 +50,20 @@ const sendToTelegram = async (message: string, channelId?: string): Promise<Tele
 
     return {
       success: true,
-      messageId: result.message_id
+      messageId: result.message_id,
     }
-
-  } catch (error) {
+  }
+  catch (error) {
     console.error('发送Telegram消息失败:', error)
     return {
       success: false,
-      error: error instanceof Error ? error.message : '发送失败'
+      error: error instanceof Error ? error.message : '发送失败',
     }
   }
 }
 
 // 格式化VWAP分析结果为Telegram消息
-const formatVWAPResultForTelegram = (data: any): string => {
+function formatVWAPResultForTelegram(data: any): string {
   const { symbol, costPriceAnalysis, turnover7DaysAnalysis, vwap } = data
 
   // 获取基础信息
@@ -77,8 +79,9 @@ const formatVWAPResultForTelegram = (data: any): string => {
   // 7天成交额信息
   const turnover7Days = turnover7DaysAnalysis
   const changePercent = turnover7Days?.comparison?.changePercent || 0
-  const trendEmoji = turnover7Days?.last7Days?.trend === 'increasing' ? '📈' :
-    turnover7Days?.last7Days?.trend === 'decreasing' ? '📉' : '➡️'
+  const trendEmoji = turnover7Days?.last7Days?.trend === 'increasing'
+    ? '📈'
+    : turnover7Days?.last7Days?.trend === 'decreasing' ? '📉' : '➡️'
 
   // 构建消息
   let message = `💎 *${symbol} VWAP成本价分析*\n\n`
@@ -118,9 +121,11 @@ const formatVWAPResultForTelegram = (data: any): string => {
       if (index > 0 && interval.changeFromPrevious !== undefined) {
         if (interval.changeFromPrevious > 0) {
           statusEmoji = '🟢' // 上涨
-        } else if (interval.changeFromPrevious < 0) {
+        }
+        else if (interval.changeFromPrevious < 0) {
           statusEmoji = '🔴' // 下跌
-        } else {
+        }
+        else {
           statusEmoji = '🟡' // 持平
         }
       }
@@ -162,9 +167,11 @@ const formatVWAPResultForTelegram = (data: any): string => {
   // 投资建议
   if (deviation > 5) {
     message += `🚀 *建议*: 当前价格明显高于成本价，可能存在获利机会\n`
-  } else if (deviation < -5) {
+  }
+  else if (deviation < -5) {
     message += `🔻 *建议*: 当前价格明显低于成本价，可能存在抄底机会\n`
-  } else {
+  }
+  else {
     message += `⚖️ *建议*: 当前价格接近成本价，市场相对平衡\n`
   }
 
@@ -172,7 +179,7 @@ const formatVWAPResultForTelegram = (data: any): string => {
 }
 
 // 格式化多交易对结果为Telegram消息
-const formatMultipleResultsForTelegram = (results: any[], summary: any): string => {
+function formatMultipleResultsForTelegram(results: any[], summary: any): string {
   let message = `🌟 *多交易对VWAP成本价汇总*\n\n`
 
   results.forEach((item, index) => {
@@ -202,20 +209,20 @@ const formatMultipleResultsForTelegram = (results: any[], summary: any): string 
 }
 
 // 添加7天成交额统计的函数 - 支持不同时间间隔
-const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: number = 24): {
+function calculate7DaysTurnoverAnalysis(klineData: KlineData[], intervalHours: number = 24): {
   last7Days: {
     totalTurnover: number
     intervalTurnover: {
-      startTime: number;
-      endTime: number;
-      date: string;
-      turnover: number;
-      formattedTurnover: string;
-      timeLabel: string;
-      changeFromPrevious?: number;
-      changePercentFromPrevious?: number;
-      changeDirection?: 'up' | 'down' | 'same';
-      isCurrentInterval?: boolean; // 标记是否为当前正在进行的时间段
+      startTime: number
+      endTime: number
+      date: string
+      turnover: number
+      formattedTurnover: string
+      timeLabel: string
+      changeFromPrevious?: number
+      changePercentFromPrevious?: number
+      changeDirection?: 'up' | 'down' | 'same'
+      isCurrentInterval?: boolean // 标记是否为当前正在进行的时间段
     }[]
     averageIntervalTurnover: number
     highestIntervalTurnover: number
@@ -234,7 +241,7 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: n
     changePercent: number
     trendAnalysis: string
   }
-} => {
+} {
   const now = Date.now()
   const oneDayMs = 24 * 60 * 60 * 1000
   const intervalMs = intervalHours * 60 * 60 * 1000
@@ -248,7 +255,7 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: n
   const previous7DaysStart = now - (2 * sevenDaysMs)
   const previous7DaysEnd = last7DaysStart
   const previous7DaysData = klineData.filter(k =>
-    k.startTime >= previous7DaysStart && k.startTime < previous7DaysEnd
+    k.startTime >= previous7DaysStart && k.startTime < previous7DaysEnd,
   )
 
   console.log(`当前时间: ${formatDateTime(now)}`)
@@ -264,7 +271,8 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: n
       // 对于当前进行中的时间段，显示该时间段的理论结束时间而不是当前时间
       const theoreticalEndTime = startTime + (intervalHours * 60 * 60 * 1000)
       endDate = new Date(theoreticalEndTime)
-    } else {
+    }
+    else {
       endDate = new Date(endTime)
     }
 
@@ -272,7 +280,8 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: n
       // 24小时间隔：只显示月/日
       const monthDay = `${startDate.getMonth() + 1}/${startDate.getDate()}`
       return isCurrentInterval ? `${monthDay}*` : monthDay
-    } else if (intervalHours === 4) {
+    }
+    else if (intervalHours === 4) {
       // 4小时间隔：显示日期和时间段
       const monthDay = `${startDate.getMonth() + 1}/${startDate.getDate()}`
       const startHour = startDate.getHours().toString().padStart(2, '0')
@@ -280,7 +289,8 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: n
       const endHour = ((startDate.getHours() + intervalHours) % 24).toString().padStart(2, '0')
       const timeRange = `${monthDay} ${startHour}:00-${endHour}:00`
       return isCurrentInterval ? `${timeRange}*` : timeRange
-    } else {
+    }
+    else {
       // 其他间隔：显示完整时间
       const formatTime = (date: Date) => {
         const month = (date.getMonth() + 1).toString().padStart(2, '0')
@@ -293,7 +303,6 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: n
       return isCurrentInterval ? `${timeRange}*` : timeRange
     }
   }
-
 
   // 计算对齐到间隔边界的时间函数
   const alignToIntervalBoundary = (timestamp: number, intervalMs: number): number => {
@@ -331,7 +340,8 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: n
       // 这是当前正在进行的时间段，结束时间就是当前时间
       intervalEnd = now
       isCurrentInterval = true
-    } else {
+    }
+    else {
       // 这是已完成的时间段，结束时间是下一个间隔的开始时间
       intervalEnd = Math.min(currentIntervalStart + intervalMs, now)
     }
@@ -341,7 +351,7 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: n
       intervals.push({
         startTime: Math.max(currentIntervalStart, last7DaysStart),
         endTime: intervalEnd,
-        isCurrentInterval
+        isCurrentInterval,
       })
     }
 
@@ -355,16 +365,16 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: n
 
   // 计算每个时间间隔的成交额
   const intervalTurnover: {
-    startTime: number;
-    endTime: number;
-    date: string;
-    turnover: number;
-    formattedTurnover: string;
-    timeLabel: string;
-    changeFromPrevious?: number;
-    changePercentFromPrevious?: number;
-    changeDirection?: 'up' | 'down' | 'same';
-    isCurrentInterval?: boolean;
+    startTime: number
+    endTime: number
+    date: string
+    turnover: number
+    formattedTurnover: string
+    timeLabel: string
+    changeFromPrevious?: number
+    changePercentFromPrevious?: number
+    changeDirection?: 'up' | 'down' | 'same'
+    isCurrentInterval?: boolean
   }[] = []
 
   let previousIntervalTurnover: number | null = null
@@ -372,7 +382,7 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: n
   intervals.forEach((interval, index) => {
     // 计算该间隔内的成交额 - 使用 <= 确保包含边界数据
     const intervalData = last7DaysData.filter(k =>
-      k.startTime >= interval.startTime && k.startTime < interval.endTime
+      k.startTime >= interval.startTime && k.startTime < interval.endTime,
     )
     const turnover = intervalData.reduce((sum, k) => sum + k.turnover, 0)
 
@@ -389,14 +399,17 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: n
 
     if (previousIntervalTurnover !== null) {
       changeFromPrevious = turnover - previousIntervalTurnover
-      changePercentFromPrevious = previousIntervalTurnover > 0 ?
-        (changeFromPrevious / previousIntervalTurnover * 100) : 0
+      changePercentFromPrevious = previousIntervalTurnover > 0
+        ? (changeFromPrevious / previousIntervalTurnover * 100)
+        : 0
 
       if (changeFromPrevious > 0) {
         changeDirection = 'up'
-      } else if (changeFromPrevious < 0) {
+      }
+      else if (changeFromPrevious < 0) {
         changeDirection = 'down'
-      } else {
+      }
+      else {
         changeDirection = 'same'
       }
     }
@@ -411,7 +424,7 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: n
       changeFromPrevious,
       changePercentFromPrevious,
       changeDirection,
-      isCurrentInterval: interval.isCurrentInterval
+      isCurrentInterval: interval.isCurrentInterval,
     })
 
     previousIntervalTurnover = turnover
@@ -426,8 +439,9 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: n
 
   // 计算波动率（标准差）
   const mean = averageIntervalTurnover
-  const variance = turnoverValues.length > 0 ?
-    turnoverValues.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / turnoverValues.length : 0
+  const variance = turnoverValues.length > 0
+    ? turnoverValues.reduce((acc, val) => acc + (val - mean) ** 2, 0) / turnoverValues.length
+    : 0
   const volatility = mean > 0 ? Math.sqrt(variance) / mean * 100 : 0 // 变异系数
 
   // 计算趋势（比较前1/3和后1/3的平均值）
@@ -444,9 +458,11 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: n
 
     if (trendChangePercent > 10) {
       trend = 'increasing'
-    } else if (trendChangePercent < -10) {
+    }
+    else if (trendChangePercent < -10) {
       trend = 'decreasing'
-    } else {
+    }
+    else {
       trend = 'stable'
     }
   }
@@ -457,51 +473,58 @@ const calculate7DaysTurnoverAnalysis = (klineData: KlineData[], intervalHours: n
 
   // 计算环比变化
   const changeAmount = last7DaysTotalTurnover - previous7DaysTotalTurnover
-  const changePercent = previous7DaysTotalTurnover > 0 ?
-    (changeAmount / previous7DaysTotalTurnover * 100) : 0
+  const changePercent = previous7DaysTotalTurnover > 0
+    ? (changeAmount / previous7DaysTotalTurnover * 100)
+    : 0
 
   // 趋势分析文本
   let trendAnalysis = ''
   if (changePercent > 20) {
     trendAnalysis = '成交额显著增长，市场活跃度大幅提升'
-  } else if (changePercent > 5) {
+  }
+  else if (changePercent > 5) {
     trendAnalysis = '成交额稳步增长，市场热度上升'
-  } else if (changePercent > -5) {
+  }
+  else if (changePercent > -5) {
     trendAnalysis = '成交额基本持平，市场相对稳定'
-  } else if (changePercent > -20) {
+  }
+  else if (changePercent > -20) {
     trendAnalysis = '成交额有所下降，市场活跃度减弱'
-  } else {
+  }
+  else {
     trendAnalysis = '成交额显著下降，市场趋于冷清'
   }
 
   // 生成间隔类型描述
-  const intervalType = intervalHours === 24 ? '24小时' :
-    intervalHours === 4 ? '4小时' :
-      `${intervalHours}小时`
+  const intervalType = intervalHours === 24
+    ? '24小时'
+    : intervalHours === 4
+      ? '4小时'
+      : `${intervalHours}小时`
 
   console.log(`统计结果：最近7天总成交额 ${formatTurnover(last7DaysTotalTurnover)}, 平均间隔成交额 ${formatTurnover(averageIntervalTurnover)}`)
 
   return {
     last7Days: {
-      totalTurnover: parseFloat(last7DaysTotalTurnover.toFixed(2)),
+      totalTurnover: Number.parseFloat(last7DaysTotalTurnover.toFixed(2)),
       intervalTurnover,
-      averageIntervalTurnover: parseFloat(averageIntervalTurnover.toFixed(2)),
-      highestIntervalTurnover: parseFloat(highestIntervalTurnover.toFixed(2)),
-      lowestIntervalTurnover: parseFloat(lowestIntervalTurnover.toFixed(2)),
+      averageIntervalTurnover: Number.parseFloat(averageIntervalTurnover.toFixed(2)),
+      highestIntervalTurnover: Number.parseFloat(highestIntervalTurnover.toFixed(2)),
+      lowestIntervalTurnover: Number.parseFloat(lowestIntervalTurnover.toFixed(2)),
       trend,
-      changePercent: parseFloat(trendChangePercent.toFixed(2)),
-      volatility: parseFloat(volatility.toFixed(2)),
-      intervalType
+      changePercent: Number.parseFloat(trendChangePercent.toFixed(2)),
+      volatility: Number.parseFloat(volatility.toFixed(2)),
+      intervalType,
     },
     comparison: {
       previous7Days: {
-        totalTurnover: parseFloat(previous7DaysTotalTurnover.toFixed(2)),
-        averageIntervalTurnover: parseFloat(previousAverageIntervalTurnover.toFixed(2))
+        totalTurnover: Number.parseFloat(previous7DaysTotalTurnover.toFixed(2)),
+        averageIntervalTurnover: Number.parseFloat(previousAverageIntervalTurnover.toFixed(2)),
       },
-      changeAmount: parseFloat(changeAmount.toFixed(2)),
-      changePercent: parseFloat(changePercent.toFixed(2)),
-      trendAnalysis
-    }
+      changeAmount: Number.parseFloat(changeAmount.toFixed(2)),
+      changePercent: Number.parseFloat(changePercent.toFixed(2)),
+      trendAnalysis,
+    },
   }
 }
 
@@ -522,7 +545,7 @@ async function saveKlineDataToAPI(symbol: string, klineData: KlineData[], vwapCa
         endTime: klineData[klineData.length - 1]?.startTime || 0,
         formattedStartTime: klineData[0]?.formattedTime || '',
         formattedEndTime: klineData[klineData.length - 1]?.formattedTime || '',
-        ...timeRange
+        ...timeRange,
       },
       klineData: klineData.map(candle => ({
         timestamp: candle.startTime,
@@ -532,8 +555,8 @@ async function saveKlineDataToAPI(symbol: string, klineData: KlineData[], vwapCa
         low: candle.lowPrice,
         close: candle.closePrice,
         volume: candle.volume,
-        turnover: candle.turnover
-      }))
+        turnover: candle.turnover,
+      })),
     }
 
     const response = await fetch(`${apiUrl}?key=${dataKey}`, {
@@ -555,14 +578,15 @@ async function saveKlineDataToAPI(symbol: string, klineData: KlineData[], vwapCa
     }
 
     console.log(`💾 ${symbol} (${interval}) K线和VWAP数据保存成功: ${klineData.length}条K线数据`)
-  } catch (error) {
+  }
+  catch (error) {
     console.error(`❌ ${symbol} (${interval}) 保存K线数据失败:`, error)
     // 不抛出错误，避免影响主流程
   }
 }
 
 // 计算VWAP的函数
-const calculateVWAP = (klineData: KlineData[]): VWAPCalculation => {
+function calculateVWAP(klineData: KlineData[]): VWAPCalculation {
   let totalVolume = 0 // 总成交量
   let totalTurnover = 0 // 总成交额
 
@@ -591,17 +615,17 @@ const calculateVWAP = (klineData: KlineData[]): VWAPCalculation => {
       timestamp: candle.startTime,
       formattedTime: candle.formattedTime,
       openPrice: candle.openPrice,
-      typicalPrice: parseFloat(typicalPrice.toFixed(8)),
+      typicalPrice: Number.parseFloat(typicalPrice.toFixed(8)),
       volume: candle.volume,
       turnover: candle.turnover,
-      periodVWAP: parseFloat(periodVWAP.toFixed(8)),
-      cumulativeVWAP: parseFloat(cumulativeVWAP.toFixed(8)),
-      cumulativeVolume: parseFloat(cumulativeVolume.toFixed(8)),
-      cumulativeTurnover: parseFloat(cumulativeTurnover.toFixed(8)),
+      periodVWAP: Number.parseFloat(periodVWAP.toFixed(8)),
+      cumulativeVWAP: Number.parseFloat(cumulativeVWAP.toFixed(8)),
+      cumulativeVolume: Number.parseFloat(cumulativeVolume.toFixed(8)),
+      cumulativeTurnover: Number.parseFloat(cumulativeTurnover.toFixed(8)),
       // 价格偏离度基于真实VWAP计算
-      priceDeviation: cumulativeVWAP > 0 ? parseFloat(((candle.closePrice - cumulativeVWAP) / cumulativeVWAP * 100).toFixed(4)) : 0,
+      priceDeviation: cumulativeVWAP > 0 ? Number.parseFloat(((candle.closePrice - cumulativeVWAP) / cumulativeVWAP * 100).toFixed(4)) : 0,
       // 当前价格相对VWAP的位置
-      pricePosition: candle.closePrice > cumulativeVWAP ? 'above' : candle.closePrice < cumulativeVWAP ? 'below' : 'equal'
+      pricePosition: candle.closePrice > cumulativeVWAP ? 'above' : candle.closePrice < cumulativeVWAP ? 'below' : 'equal',
     })
   })
 
@@ -624,34 +648,34 @@ const calculateVWAP = (klineData: KlineData[]): VWAPCalculation => {
 
   return {
     // 最终VWAP结果 - 基于真实成交数据
-    finalVWAP: parseFloat(finalVWAP.toFixed(8)),
-    turnoverBasedVWAP: parseFloat(finalVWAP.toFixed(8)), // 与finalVWAP相同，因为都基于turnover
+    finalVWAP: Number.parseFloat(finalVWAP.toFixed(8)),
+    turnoverBasedVWAP: Number.parseFloat(finalVWAP.toFixed(8)), // 与finalVWAP相同，因为都基于turnover
 
     // 统计信息
-    totalVolume: parseFloat(totalVolume.toFixed(8)),
-    totalTurnover: parseFloat(totalTurnover.toFixed(8)),
-    totalValue: parseFloat(totalTurnover.toFixed(8)), // 使用实际成交额
+    totalVolume: Number.parseFloat(totalVolume.toFixed(8)),
+    totalTurnover: Number.parseFloat(totalTurnover.toFixed(8)),
+    totalValue: Number.parseFloat(totalTurnover.toFixed(8)), // 使用实际成交额
     periodCount: klineData.length,
 
     // 价格信息
-    currentPrice: parseFloat(currentPrice.toFixed(8)),
-    highestPrice: parseFloat(highestPrice.toFixed(8)),
-    lowestPrice: parseFloat(lowestPrice.toFixed(8)),
+    currentPrice: Number.parseFloat(currentPrice.toFixed(8)),
+    highestPrice: Number.parseFloat(highestPrice.toFixed(8)),
+    lowestPrice: Number.parseFloat(lowestPrice.toFixed(8)),
 
     // 偏离度分析
-    currentDeviation: finalVWAP > 0 ? parseFloat(((currentPrice - finalVWAP) / finalVWAP * 100).toFixed(4)) : 0,
+    currentDeviation: finalVWAP > 0 ? Number.parseFloat(((currentPrice - finalVWAP) / finalVWAP * 100).toFixed(4)) : 0,
     maxDeviation: Math.max(...vwapByPeriod.map(v => Math.abs(v.priceDeviation))),
 
     // 市场趋势分析
-    aboveVWAPPercentage: parseFloat((aboveVWAPCount / vwapByPeriod.length * 100).toFixed(2)),
-    belowVWAPPercentage: parseFloat((belowVWAPCount / vwapByPeriod.length * 100).toFixed(2)),
+    aboveVWAPPercentage: Number.parseFloat((aboveVWAPCount / vwapByPeriod.length * 100).toFixed(2)),
+    belowVWAPPercentage: Number.parseFloat((belowVWAPCount / vwapByPeriod.length * 100).toFixed(2)),
 
     // 时间范围
     startTime: klineData[0]?.startTime || 0,
     endTime: klineData[klineData.length - 1]?.startTime || 0,
 
     // 详细数据
-    vwapByPeriod: vwapByPeriod
+    vwapByPeriod,
   }
 }
 
@@ -659,7 +683,7 @@ const calculateVWAP = (klineData: KlineData[]): VWAPCalculation => {
  * 获取Bybit合约信息和K线数据，并计算VWAP
  * 返回指定交易对的合约信息、完整K线数据和VWAP计算结果
  * 使用: GET /exchanges/bybit/vwap
- * 参数: 
+ * 参数:
  *   - symbol: 合约名称，支持单个或多个（逗号分隔），如 BTCUSDT 或 BTCUSDT,ETHUSDT
  *   - category: 产品类型 (linear, inverse, spot) - 可选，默认linear
  *   - interval: 时间粒度 (1,3,5,15,30,60,120,240,360,720,D,M,W) - 可选，默认1（1分钟，最精确）
@@ -699,24 +723,24 @@ export default defineEventHandler(async (event) => {
       // 可选的Telegram频道ID
       telegramChannelId: z.string().optional(),
       // 新增参数：成交额统计的时间间隔（小时）
-      turnoverInterval: z.string().optional().transform(val => {
-        if (!val) return 4 // 默认4小时
-        const hours = parseInt(val)
+      turnoverInterval: z.string().optional().transform((val) => {
+        if (!val) { return 4 } // 默认4小时
+        const hours = Number.parseInt(val)
         if (isNaN(hours) || hours <= 0 || hours > 24) {
           throw new Error('turnoverInterval 必须是1-24之间的有效小时数')
         }
         return hours
       }).default('4'),
       // 新增参数：自定义起始时间
-      startTime: z.string().optional().transform(val => {
-        if (!val) return undefined
+      startTime: z.string().optional().transform((val) => {
+        if (!val) { return undefined }
 
         // 检查是否是相对时间格式（如 1d, 2d, 30d 等）
         const relativeTimeMatch = val.match(/^(\d+)([dhm])$/i)
         if (relativeTimeMatch) {
           const [, amount, unit] = relativeTimeMatch
           const now = Date.now()
-          const num = parseInt(amount)
+          const num = Number.parseInt(amount)
 
           if (isNaN(num) || num <= 0) {
             throw new Error('时间数量必须是正整数')
@@ -735,18 +759,18 @@ export default defineEventHandler(async (event) => {
         }
 
         // 如果不是相对时间格式，尝试解析为时间戳
-        const timestamp = parseInt(val)
+        const timestamp = Number.parseInt(val)
         if (isNaN(timestamp)) {
-          throw new Error('startTime 必须是有效的时间戳或相对时间格式（如：1d, 2h, 30m）')
+          throw new TypeError('startTime 必须是有效的时间戳或相对时间格式（如：1d, 2h, 30m）')
         }
         return timestamp
       }),
       // 新增参数：自定义结束时间
-      endTime: z.string().optional().transform(val => {
-        if (!val) return undefined
-        const timestamp = parseInt(val)
+      endTime: z.string().optional().transform((val) => {
+        if (!val) { return undefined }
+        const timestamp = Number.parseInt(val)
         if (isNaN(timestamp)) {
-          throw new Error('endTime 必须是有效的时间戳')
+          throw new TypeError('endTime 必须是有效的时间戳')
         }
         return timestamp
       }),
@@ -771,7 +795,7 @@ export default defineEventHandler(async (event) => {
       telegramChannelId,
       turnoverInterval,
       startTime: customStartTime,
-      endTime: customEndTime
+      endTime: customEndTime,
     } = validationResult.data
 
     // 验证symbols数量限制
@@ -800,8 +824,8 @@ export default defineEventHandler(async (event) => {
           symbol,
         })
 
-        if (status) params.append('status', status)
-        if (baseCoin) params.append('baseCoin', baseCoin)
+        if (status) { params.append('status', status) }
+        if (baseCoin) { params.append('baseCoin', baseCoin) }
 
         const url = `${bybitApiUrl}/v5/market/instruments-info?${params.toString()}`
 
@@ -835,7 +859,7 @@ export default defineEventHandler(async (event) => {
           interval,
           start: start.toString(),
           end: end.toString(),
-          limit: '1000'
+          limit: '1000',
         })
 
         const url = `${bybitApiUrl}/v5/market/kline?${params.toString()}`
@@ -867,7 +891,7 @@ export default defineEventHandler(async (event) => {
 
       // 使用自定义时间范围，如果没有提供则使用默认值
       let targetStartTime = customStartTime || launchTime
-      let targetEndTime = customEndTime || Date.now()
+      const targetEndTime = customEndTime || Date.now()
 
       // 如果自定义起始时间早于合约上线时间，则使用合约上线时间
       if (targetStartTime < launchTime) {
@@ -932,17 +956,17 @@ export default defineEventHandler(async (event) => {
       // 转换为KlineData格式并去重、排序
       const processedData = allKlineData
         .map(item => ({
-          startTime: parseInt(item[0]),
-          openPrice: parseFloat(item[1]),
-          highPrice: parseFloat(item[2]),
-          lowPrice: parseFloat(item[3]),
-          closePrice: parseFloat(item[4]),
-          volume: parseFloat(item[5]),
-          turnover: parseFloat(item[6]),
-          formattedTime: formatDateTime(parseInt(item[0]))
+          startTime: Number.parseInt(item[0]),
+          openPrice: Number.parseFloat(item[1]),
+          highPrice: Number.parseFloat(item[2]),
+          lowPrice: Number.parseFloat(item[3]),
+          closePrice: Number.parseFloat(item[4]),
+          volume: Number.parseFloat(item[5]),
+          turnover: Number.parseFloat(item[6]),
+          formattedTime: formatDateTime(Number.parseInt(item[0])),
         }))
         // 严格过滤时间范围
-        .filter(item => {
+        .filter((item) => {
           return item.startTime >= targetStartTime && item.startTime <= targetEndTime
         })
         // 去重：使用 Map 确保每个时间戳只有一条数据
@@ -964,7 +988,7 @@ export default defineEventHandler(async (event) => {
         let totalVolume = 0
         let totalTurnover = 0
 
-        finalData.forEach(candle => {
+        finalData.forEach((candle) => {
           totalVolume += candle.volume
           totalTurnover += candle.turnover
         })
@@ -994,7 +1018,7 @@ export default defineEventHandler(async (event) => {
       }
 
       const instrumentInfo = instrumentResponse.result.list[0]
-      const launchTime = parseInt(instrumentInfo.launchTime)
+      const launchTime = Number.parseInt(instrumentInfo.launchTime)
 
       // 2. 获取完整K线数据（每个请求都通过队列）
       const klineData = await fetchAllKlineData(symbol, launchTime)
@@ -1016,21 +1040,22 @@ export default defineEventHandler(async (event) => {
       const timeRange = {
         requestedStartTime: customStartTime,
         requestedEndTime: customEndTime,
-        actualStartTime: actualStartTime,
-        actualEndTime: actualEndTime,
+        actualStartTime,
+        actualEndTime,
         contractLaunchTime: launchTime,
         formattedActualStartTime: formatDateTime(actualStartTime),
         formattedActualEndTime: formatDateTime(actualEndTime),
         formattedContractLaunchTime: formatDateTime(launchTime),
         isCustomRange: !!(customStartTime || customEndTime),
-        durationDays: Math.floor((actualEndTime - actualStartTime) / (1000 * 60 * 60 * 24))
+        durationDays: Math.floor((actualEndTime - actualStartTime) / (1000 * 60 * 60 * 24)),
       }
 
       // 6. 保存K线数据到API（如果启用）
       if (saveData) {
         try {
           await saveKlineDataToAPI(symbol, klineData, vwapCalculation, interval, timeRange)
-        } catch (error) {
+        }
+        catch (error) {
           console.warn(`保存数据失败，但不影响主流程:`, error)
         }
       }
@@ -1042,10 +1067,10 @@ export default defineEventHandler(async (event) => {
         launchTimeMs: launchTime,
         formattedLaunchTime: formatDateTime(launchTime),
         daysFromLaunch: Math.floor((Date.now() - launchTime) / (1000 * 60 * 60 * 24)),
-        priceScaleNumber: parseInt(instrumentInfo.priceScale),
-        tickSizeFloat: parseFloat(instrumentInfo.priceFilter.tickSize),
-        minOrderQtyFloat: parseFloat(instrumentInfo.lotSizeFilter.minOrderQty),
-        maxOrderQtyFloat: parseFloat(instrumentInfo.lotSizeFilter.maxOrderQty),
+        priceScaleNumber: Number.parseInt(instrumentInfo.priceScale),
+        tickSizeFloat: Number.parseFloat(instrumentInfo.priceFilter.tickSize),
+        minOrderQtyFloat: Number.parseFloat(instrumentInfo.lotSizeFilter.minOrderQty),
+        maxOrderQtyFloat: Number.parseFloat(instrumentInfo.lotSizeFilter.maxOrderQty),
       }
 
       return {
@@ -1057,11 +1082,11 @@ export default defineEventHandler(async (event) => {
           interval,
           total: klineData.length,
           timeRange,
-          data: includeDetails ? klineData : []
+          data: includeDetails ? klineData : [],
         },
         vwap: {
           ...vwapCalculation,
-          vwapByPeriod: includeDetails ? vwapCalculation.vwapByPeriod : []
+          vwapByPeriod: includeDetails ? vwapCalculation.vwapByPeriod : [],
         },
         dataSaved: saveData,
         // 添加成本价信息到返回结果
@@ -1073,13 +1098,14 @@ export default defineEventHandler(async (event) => {
           totalTurnover: vwapCalculation.totalTurnover,
           priceRange: {
             highest: vwapCalculation.highestPrice,
-            lowest: vwapCalculation.lowestPrice
+            lowest: vwapCalculation.lowestPrice,
           },
-          marketStatus: vwapCalculation.currentDeviation > 5 ? 'above_cost' :
-            vwapCalculation.currentDeviation < -5 ? 'below_cost' : 'near_cost'
+          marketStatus: vwapCalculation.currentDeviation > 5
+            ? 'above_cost'
+            : vwapCalculation.currentDeviation < -5 ? 'below_cost' : 'near_cost',
         },
         // 添加7天成交额分析
-        turnover7DaysAnalysis: turnover7Days
+        turnover7DaysAnalysis: turnover7Days,
       }
     }
 
@@ -1096,14 +1122,16 @@ export default defineEventHandler(async (event) => {
 
           if (telegramResult.success) {
             console.log(`✅ ${symbols[0]} Telegram消息发送成功，消息ID: ${telegramResult.messageId}`)
-          } else {
+          }
+          else {
             console.warn(`⚠️ ${symbols[0]} Telegram消息发送失败: ${telegramResult.error}`)
           }
-        } catch (error) {
+        }
+        catch (error) {
           console.warn(`⚠️ ${symbols[0]} Telegram发送出错:`, error)
           telegramResult = {
             success: false,
-            error: error instanceof Error ? error.message : 'Telegram发送失败'
+            error: error instanceof Error ? error.message : 'Telegram发送失败',
           }
         }
       }
@@ -1112,7 +1140,7 @@ export default defineEventHandler(async (event) => {
 
       return createSuccessResponse({
         ...result,
-        telegramSent: shouldSendToTelegram ? telegramResult : undefined
+        telegramSent: shouldSendToTelegram ? telegramResult : undefined,
       }, message)
     }
 
@@ -1124,16 +1152,17 @@ export default defineEventHandler(async (event) => {
           return {
             success: true,
             symbol,
-            data: result
+            data: result,
           }
-        } catch (error) {
+        }
+        catch (error) {
           return {
             success: false,
             symbol,
-            error: error instanceof Error ? error.message : '获取数据失败'
+            error: error instanceof Error ? error.message : '获取数据失败',
           }
         }
-      })
+      }),
     )
 
     // 分离成功和失败的结果
@@ -1144,16 +1173,18 @@ export default defineEventHandler(async (event) => {
       if (result.status === 'fulfilled') {
         if (result.value.success) {
           successful.push(result.value.data)
-        } else {
+        }
+        else {
           failed.push({
             symbol: result.value.symbol,
-            error: result.value.error
+            error: result.value.error,
           })
         }
-      } else {
+      }
+      else {
         failed.push({
           symbol: 'unknown',
-          error: result.reason instanceof Error ? result.reason.message : '请求失败'
+          error: result.reason instanceof Error ? result.reason.message : '请求失败',
         })
       }
     })
@@ -1170,20 +1201,22 @@ export default defineEventHandler(async (event) => {
         const telegramMessage = formatMultipleResultsForTelegram(successful, {
           total: symbols.length,
           successful: successful.length,
-          failed: failed.length
+          failed: failed.length,
         })
         telegramResult = await sendToTelegram(telegramMessage, telegramChannelId)
 
         if (telegramResult.success) {
           console.log(`✅ 多交易对Telegram消息发送成功，消息ID: ${telegramResult.messageId}`)
-        } else {
+        }
+        else {
           console.warn(`⚠️ 多交易对Telegram消息发送失败: ${telegramResult.error}`)
         }
-      } catch (error) {
+      }
+      catch (error) {
         console.warn(`⚠️ 多交易对Telegram发送出错:`, error)
         telegramResult = {
           success: false,
-          error: error instanceof Error ? error.message : 'Telegram发送失败'
+          error: error instanceof Error ? error.message : 'Telegram发送失败',
         }
       }
     }
@@ -1206,13 +1239,13 @@ export default defineEventHandler(async (event) => {
         timeRange: {
           customStartTime,
           customEndTime,
-          isCustomRange: !!(customStartTime || customEndTime)
-        }
+          isCustomRange: !!(customStartTime || customEndTime),
+        },
       },
-      telegramSent: shouldSendToTelegram ? telegramResult : undefined
+      telegramSent: shouldSendToTelegram ? telegramResult : undefined,
     }, message)
-
-  } catch (error) {
+  }
+  catch (error) {
     return createErrorResponse(
       error instanceof Error ? error.message : '获取数据失败',
       500,

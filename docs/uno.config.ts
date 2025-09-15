@@ -1,5 +1,5 @@
-import { defineConfig, transformerDirectives, transformerVariantGroup } from 'unocss'
 import { presetXui } from '@x-dev-uni/preset'
+import { defineConfig, transformerDirectives, transformerVariantGroup } from 'unocss'
 
 export default defineConfig({
   envMode: 'dev',

@@ -45,7 +45,7 @@ accept=".xlsx"
  {{ example1 }}
 </pre>
 
- ### <i i-logos-vue /> 插槽
+### <i i-logos-vue /> 插槽
 
 ```vue
 <script setup lang="ts">
@@ -74,7 +74,9 @@ function handleParseExcelSuccess(data) {
 :show-file-list="false"
 accept=".xlsx"
 :on-parse-excel-success="handleParseExcelSuccessExample2"
+
 >
+
     <template #tip>
         <div class="el-upload__tip">
             小于500kb的xlsx文件
@@ -83,6 +85,7 @@ accept=".xlsx"
     <template #trigger>
         <x-button type="primary">上传文件</x-button>
     </template>
+
 </x-el-upload>
 
 <pre>
