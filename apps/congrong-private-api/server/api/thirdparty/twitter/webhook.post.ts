@@ -10,28 +10,37 @@ import { appendEntry, assemble, buildHeader, splitMessage } from '../../../utils
 import { bot } from '../../../utils/bot'
 import { getTelegramChannel } from '../../../utils/telegram'
 
+// 更宽松的 Tweet 校验，兼容多种字段形态
+const tweetSchema = z.object({
+  // id 可能是数字或字符串，统一转成字符串
+  id: z.union([z.string(), z.number()]).transform(v => String(v)),
+  text: z.string().optional(),
+  // 兼容 author 字段，并保留额外字段
+  author: z.object({
+    id: z.union([z.string(), z.number()]).optional().transform(v => v == null ? undefined : String(v)),
+    username: z.string().optional(),
+    name: z.string().optional(),
+  }).passthrough().optional(),
+  // 兼容 created_at / createdAt
+  created_at: z.string().optional(),
+  createdAt: z.string().optional(),
+  // 链接字段：放宽为任意字符串（由下游安全处理）
+  url: z.string().optional(),
+  twitterUrl: z.string().optional(),
+}).passthrough()
+
 const twitterWebhookSchema = z.object({
   event_type: z.string().min(1, 'event_type 不能为空'),
-  rule_id: z.string().optional(),
+  // 规则 id 可能为数字或字符串
+  rule_id: z.union([z.string(), z.number()]).optional().transform(v => v == null ? undefined : String(v)),
   rule_tag: z.string().optional(),
   rule_value: z.string().optional(),
-  tweets: z.array(z.object({
-    id: z.string(),
-    text: z.string().optional(),
-    // 兼容 author 字段，并保留额外字段
-    author: z.object({
-      id: z.string().optional(),
-      username: z.string().optional(),
-      name: z.string().optional(),
-    }).passthrough().optional(),
-    // 兼容 created_at / createdAt
-    created_at: z.string().optional(),
-    createdAt: z.string().optional(),
-    // 常见链接字段（twitterapi.io 示例）
-    url: z.string().url().optional(),
-    twitterUrl: z.string().url().optional(),
-  }).passthrough()).optional().default([]),
-  timestamp: z.number().optional(),
+  // tweets 可能缺失或位于 data 字段，先放宽为任意数组，后续统一处理
+  tweets: z.array(tweetSchema).optional().default([]),
+  // timestamp 可能是字符串或数字
+  timestamp: z.union([z.number(), z.string()]).optional(),
+  // 一些提供方会把数据放在 data 数组里
+  data: z.array(tweetSchema).optional(),
 }).passthrough()
 
 export default defineEventHandler(async (event) => {
@@ -117,15 +126,6 @@ export default defineEventHandler(async (event) => {
     }
 
     const payload = validation.data
-    interface TweetPreview {
-      id: string
-      text?: string
-      author?: { id?: string, username?: string, userName?: string, name?: string }
-      created_at?: string
-      createdAt?: string
-      url?: string
-      twitterUrl?: string
-    }
 
     // 处理首次验证事件（twitterapi.io 会发送 test_webhook_url）
     if (payload.event_type === 'test_webhook_url') {
@@ -148,6 +148,18 @@ export default defineEventHandler(async (event) => {
       return createSuccessResponse({ received: true, verification: true, eventType: payload.event_type }, 'Webhook test acknowledged')
     }
 
+    // 归一化 tweets 列表（兼容 tweets 或 data 字段）
+    const normalizedTweets = (() => {
+      const raw = Array.isArray((payload as any).tweets)
+        ? (payload as any).tweets
+        : (Array.isArray((payload as any).data) ? (payload as any).data : [])
+      // tweetSchema 已将 id 转为字符串，但这里再次兜底处理
+      return (raw as any[]).map((t) => {
+        const id = t && t.id != null ? String(t.id) : ''
+        return { ...t, id }
+      }) as { id: string, text?: string, author?: any, created_at?: string, createdAt?: string, url?: string, twitterUrl?: string }[]
+    })()
+
     // 可在此处加入持久化/转发逻辑（例如入库、推送到队列等）
     // 发送 Telegram 简报（异步执行，失败不影响响应）
     ;(async () => {
@@ -160,16 +172,15 @@ export default defineEventHandler(async (event) => {
         if (payload.rule_value) {
           appendEntry(lines, `Rule Value: ${payload.rule_value}`)
         }
-        appendEntry(lines, `Tweets: ${payload.tweets?.length ?? 0}`)
+        appendEntry(lines, `Tweets: ${normalizedTweets.length}`)
 
-        const tweets = (payload.tweets as unknown as TweetPreview[]) ?? []
-        const sample = tweets.slice(0, 3)
+        const sample = normalizedTweets.slice(0, 3)
         for (const t of sample) {
           const preview = (t.text || '').slice(0, 140).replace(/\s+/g, ' ')
           // 链接优先顺序：twitterUrl > url > 根据 author/用户名拼接 > 通用 i/web/status
-          const authorUser = t.author?.username || (t.author as any)?.userName
-          const link = (t as any).twitterUrl || (t as any).url || (authorUser ? `https://x.com/${authorUser}/status/${t.id}` : `https://x.com/i/web/status/${t.id}`)
-          appendEntry(lines, `• ${t.id}${preview ? ` — ${preview}` : ''} (${link})`)
+          const authorUser = (t as any)?.author?.username || (t as any)?.author?.userName
+          const link = (t as any).twitterUrl || (t as any).url || (authorUser ? `https://x.com/${authorUser}/status/${t.id}` : (t.id ? `https://x.com/i/web/status/${t.id}` : ''))
+          appendEntry(lines, `• ${t.id || '-'}${preview ? ` — ${preview}` : ''}${link ? ` (${link})` : ''}`)
         }
 
         const message = assemble(lines)
@@ -190,7 +201,7 @@ export default defineEventHandler(async (event) => {
       eventType: payload.event_type,
       ruleId: payload.rule_id,
       ruleTag: payload.rule_tag,
-      tweetsCount: payload.tweets?.length ?? 0,
+      tweetsCount: normalizedTweets.length,
     }, 'Webhook received')
   }
   catch (error) {
