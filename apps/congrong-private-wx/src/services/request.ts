@@ -87,7 +87,7 @@ export const alovaInstance = createAlova({
       }
 
       // 处理业务状态码，成功时code为0
-      if (rawData.code === 0) {
+      if (rawData.code === 0 || rawData.success) {
         return rawData.data
       }
       else {

@@ -10,7 +10,8 @@ const HUATUO_APP_CODE = 'congrong_wx_applet'
  * @returns 表单提交响应
  */
 export function submitHuatuoForm(data: Omit<HuatuoSubmitRequest, 'thirdAppCode' | 'accountType'>) {
-  return request.Post<HuatuoSubmitResponse>('/api/thirdparty/huatuo', {
+  request.options.baseURL = import.meta.env.VITE_HUATUO as string
+  return request.Post<HuatuoSubmitResponse>('/huatuo/wechat/callback', {
     ...data,
     thirdAppCode: HUATUO_APP_CODE,
     accountType: 'wx_applet',
