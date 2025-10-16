@@ -1,9 +1,0 @@
-- **Frontend:** Vue.js, uni-app (for mini-programs), vite, tailwindcss, unocss, pinia (state management), vue-i18n.
-- **Backend:** Nitro (serverless framework), Cloudflare Workers, Drizzle ORM.
-- **Monorepo:** pnpm workspaces.
-- **Linting/Formatting:** eslint, stylelint.
-- **Testing:** vitest.
-- **Build:** unbuild, vite.
-- **Language:** TypeScript.
-- **Database:** Cloudflare D1.
-- **Other:** Telegram Bot (grammy), JWT (jose), Data Validation (zod), AI (OpenAI, Deepseek).

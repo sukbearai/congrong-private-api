@@ -1,1 +1,0 @@
-The project uses `@icebreakers/eslint-config` and `@icebreakers/stylelint-config` to enforce code style. This means the project follows the coding style of the `icebreakers` community. The `preinstall` script in the root `package.json` enforces the use of `pnpm` as the package manager.
