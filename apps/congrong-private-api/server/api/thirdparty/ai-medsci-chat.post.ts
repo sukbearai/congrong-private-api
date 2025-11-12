@@ -42,7 +42,7 @@ export default defineEventHandler(async (event) => {
       headers: {
         'Authorization': 'Bearer app-trwObvQNWNxRfmzFZiITaZut',
         'Content-Type': 'application/json',
-        'Accept': 'text/event-stream',
+        ...(chatData.response_mode === 'streaming' && { 'Accept': 'text/event-stream' }),
       },
       body: JSON.stringify(chatData),
     })
@@ -52,7 +52,14 @@ export default defineEventHandler(async (event) => {
       return createErrorResponse(`HTTP 错误: ${response.status}`, response.status)
     }
 
-    // 设置 SSE 响应头
+    // 根据响应模式处理返回数据
+    if (chatData.response_mode === 'blocking') {
+      // 阻塞模式：直接返回 JSON 数据
+      const responseData = await response.json()
+      return createSuccessResponse(responseData, '聊天消息发送成功')
+    }
+
+    // 流式模式：设置 SSE 响应头
     setHeader(event, 'Content-Type', 'text/event-stream')
     setHeader(event, 'Cache-Control', 'no-cache')
     setHeader(event, 'Connection', 'keep-alive')
