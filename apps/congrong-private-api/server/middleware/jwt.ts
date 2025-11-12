@@ -29,6 +29,34 @@ export default defineEventHandler(async (event) => {
     '/api/thirdparty/twitter',
   ]
 
+  // 需要特殊token鉴权的路径
+  const specialTokenPaths = [
+    '/api/thirdparty/ai-medsci-chat',
+  ]
+
+  // 检查是否需要特殊token鉴权
+  if (specialTokenPaths.includes(event.path)) {
+    const authHeader = getHeader(event, 'authorization')
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return createErrorResponse('Missing or invalid authorization header', 401)
+    }
+
+    const token = authHeader.substring(7)
+    // 简单的token验证
+    const validTokens = [
+      'app-trwObvQNWNxRfmzFZiITaZut',
+      'sk-test-token',
+      // 可以添加更多有效token
+    ]
+
+    if (!validTokens.includes(token)) {
+      return createErrorResponse('Unauthorized: Invalid token', 401)
+    }
+
+    // 特殊鉴权通过，继续执行
+    return
+  }
+
   // 如果是公共路径或OPTIONS请求，跳过认证
   if (publicPaths.some(path => event.path === path || (path !== '/' && event.path.startsWith(path))) || event.method === 'OPTIONS') {
     return
