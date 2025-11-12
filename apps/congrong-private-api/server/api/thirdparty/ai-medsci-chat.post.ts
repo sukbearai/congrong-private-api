@@ -13,6 +13,11 @@ const chatMessageSchema = z.object({
 
 /* -------------------- 主函数 -------------------- */
 export default defineEventHandler(async (event) => {
+  /* ---------- 0. 权限校验 ---------- */
+  const aiEnabled = event.context.user.aiEnabled
+  if (!aiEnabled) {
+    throw createError({ statusCode: 400, statusMessage: '当前用户没有激活AI' })
+  }
   /* ---------- 1. 读体 & 校验 ---------- */
   const rawBody = await readBody(event)
   const parsed = chatMessageSchema.safeParse(rawBody)

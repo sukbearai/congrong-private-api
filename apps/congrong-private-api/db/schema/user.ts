@@ -7,4 +7,5 @@ export const usersTable = sqliteTable('users_table', {
   password: text(),
   role: text().default('user'),
   deviceIds: text(),
+  aiEnabled: int().default(0),
 })
