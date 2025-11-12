@@ -34,43 +34,29 @@ export default defineEventHandler(async (event) => {
     '/api/thirdparty/ai-medsci-chat',
   ]
 
-  // 检查是否需要特殊token鉴权
-  if (specialTokenPaths.includes(event.path)) {
-    const authHeader = getHeader(event, 'authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return createErrorResponse('Missing or invalid authorization header', 401)
-    }
+  const isPathMatched = (paths: string[]) =>
+    paths.some(path => event.path === path || (path !== '/' && event.path.startsWith(path)))
 
-    const token = authHeader.substring(7)
-    // 简单的token验证
-    const validTokens = [
-      'app-trwObvQNWNxRfmzFZiITaZut',
-      'sk-test-token',
-      // 可以添加更多有效token
-    ]
-
-    if (!validTokens.includes(token)) {
-      return createErrorResponse('Unauthorized: Invalid token', 401)
-    }
-
-    // 特殊鉴权通过，继续执行
+  if (event.method === 'OPTIONS') {
     return
   }
 
-  // 如果是公共路径或OPTIONS请求，跳过认证
-  if (publicPaths.some(path => event.path === path || (path !== '/' && event.path.startsWith(path))) || event.method === 'OPTIONS') {
+  const isSpecialPath = isPathMatched(specialTokenPaths)
+
+  // 如果是公共路径，跳过认证
+  if (!isSpecialPath && isPathMatched(publicPaths)) {
     return
   }
 
   // 从请求头获取令牌
-  const authorization = getHeader(event, 'Authorization')
+  const authorization = getHeader(event, 'Authorization') || getHeader(event, 'authorization')
 
   if (!authorization || !authorization.startsWith('Bearer ')) {
     return createErrorResponse(`未提供认证令牌-${event.path}`, 401)
   }
 
   try {
-    const token = authorization.split(' ')[1]
+    const token = authorization.substring(7)
 
     // 验证令牌
     const secretKey = new TextEncoder().encode(jwtSecret)
@@ -79,28 +65,45 @@ export default defineEventHandler(async (event) => {
     // eslint-disable-next-line no-console
     console.log(payload, 'payload')
 
-    const userId = payload.user_id as number
-    if (!userId) {
-      return createErrorResponse('无效的令牌内容', 401)
+    const userId = payload.user_id as number | undefined
+
+    // 非特殊路径必须包含 user_id，并写入上下文
+    if (!isSpecialPath) {
+      if (!userId) {
+        return createErrorResponse('无效的令牌内容', 401)
+      }
+
+      event.context.userId = userId
+
+      const users = await event.context.db
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.id, userId))
+        .limit(1)
+
+      const user = users.length > 0 ? users[0] : null
+
+      if (!user) {
+        return createErrorResponse('用户不存在', 404)
+      }
+
+      event.context.user = user
     }
+    else if (userId) {
+      // 特殊路径支持附带 user_id，尽量保持上下文一致
+      event.context.userId = userId
 
-    event.context.userId = userId
+      const users = await event.context.db
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.id, userId))
+        .limit(1)
 
-    // 查询用户信息
-    const users = await event.context.db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.id, userId))
-      .limit(1)
-
-    const user = users.length > 0 ? users[0] : null
-
-    if (!user) {
-      return createErrorResponse('用户不存在', 404)
+      const user = users.length > 0 ? users[0] : null
+      if (user) {
+        event.context.user = user
+      }
     }
-
-    // 将用户信息添加到请求上下文
-    event.context.user = user
   }
   catch (error) {
     // 处理不同类型的JWT错误
