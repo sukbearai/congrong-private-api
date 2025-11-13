@@ -8,6 +8,7 @@ const updateUserSchema = z.object({
   password: z.string().min(6, '密码至少6位').max(50, '密码不超过50位').optional(),
   role: z.string().optional(),
   deviceIds: z.string().optional(),
+  aiEnabled: z.number().optional(),
 })
 
 /**

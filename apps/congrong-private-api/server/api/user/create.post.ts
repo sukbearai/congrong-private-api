@@ -5,6 +5,7 @@ const createUserSchema = z.object({
   password: z.string().min(6, '密码至少6位').max(50, '密码不超过50位').optional(),
   role: z.string().default('user'),
   deviceIds: z.string().optional(),
+  aiEnabled: z.number().default(0),
 })
 
 /**
@@ -23,7 +24,7 @@ export default defineEventHandler(async (event) => {
       return createErrorResponse(errorMessages, 400)
     }
 
-    const { nickname, phone, password, role, deviceIds } = validationResult.data
+    const { nickname, phone, password, role, deviceIds, aiEnabled } = validationResult.data
 
     // 检查手机号是否已存在
     const existingUsers = await event.context.db
@@ -45,6 +46,7 @@ export default defineEventHandler(async (event) => {
         password,
         role,
         deviceIds: deviceIds || '',
+        aiEnabled,
       })
       .returning()
 
