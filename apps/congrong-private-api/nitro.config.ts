@@ -104,6 +104,7 @@ export default defineNitroConfig({
     twitter: {
       apiKey: process.env.twitterApiKey,
     },
+    aiMedsciApiToken: process.env.aiMedsciApiToken,
   },
 
   preset: 'cloudflare_module',

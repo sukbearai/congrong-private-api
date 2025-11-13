@@ -13,6 +13,8 @@ const chatMessageSchema = z.object({
 
 /* -------------------- 主函数 -------------------- */
 export default defineEventHandler(async (event) => {
+  const config = useRuntimeConfig()
+
   /* ---------- 0. 权限校验 ---------- */
   const aiEnabled = event.context.user.aiEnabled
   if (!aiEnabled) {
@@ -31,7 +33,7 @@ export default defineEventHandler(async (event) => {
   const upstream = await fetch('https://ai.medsci.cn/v1/chat-messages', {
     method: 'POST',
     headers: {
-      'Authorization': 'Bearer app-trwObvQNWNxRfmzFZiITaZut',
+      'Authorization': `Bearer ${config.aiMedsciApiToken}`,
       'Content-Type': 'application/json',
       'Accept': chatData.response_mode === 'streaming' ? 'text/event-stream' : 'application/json',
     },
