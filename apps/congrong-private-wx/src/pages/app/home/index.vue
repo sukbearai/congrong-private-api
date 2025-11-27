@@ -243,7 +243,8 @@ async function handleSubmit() {
             点击查看历史报告
           </wd-button>
         </view>
-        <view>您提供的信息仅用于生成体质识别报告</view>
+        <!-- <view>您提供的信息仅用于生成体质识别报告</view> -->
+        <view>本小程序仅支持协议客户用户内部使用</view>
         <wd-button custom-class="mt-2 " type="primary" size="large" block @click="handleSubmit">
           提交
         </wd-button>
