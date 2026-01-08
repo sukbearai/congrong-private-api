@@ -1,7 +1,7 @@
 const TELEGRAM_LIMIT = 4000
 
 function pad(n: number): string { return n < 10 ? `0${n}` : `${n}` }
-export function formatCurrentTime(d: Date = new Date()): string {
+function formatCurrentTime(d: Date = new Date()): string {
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())} UTC`
 }
 
