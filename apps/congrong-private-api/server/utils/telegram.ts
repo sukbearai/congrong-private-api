@@ -9,6 +9,7 @@ const channelMap: Record<string, string> = {
   'ol:alarm': DEFAULT_CHANNEL,
   'market:fluctuation': DEFAULT_CHANNEL,
   'market:announcement': DEFAULT_CHANNEL,
+  'signal:hubble': DEFAULT_CHANNEL,
 }
 
 export function getTelegramChannel(taskName: string): string {

@@ -105,6 +105,9 @@ export default defineNitroConfig({
       apiKey: process.env.twitterApiKey,
     },
     aiMedsciApiToken: process.env.aiMedsciApiToken,
+    hubble: {
+      apiKey: process.env.HUBBLE_API_KEY,
+    },
   },
 
   preset: 'cloudflare_module',

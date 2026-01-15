@@ -63,6 +63,7 @@ jobs:
           deepseekApiKey: ${{ secrets.DEEPSEEK_API_KEY }}
           twitterApiKey: ${{ secrets.TWITTER_API_KEY }}
           aiMedsciApiToken: ${{ secrets.AI_MEDSCI_API_TOKEN }}
+          hubbleApiKey: ${{ secrets.HUBBLE_API_KEY }}
 
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
@@ -84,6 +85,7 @@ jobs:
             deepseekApiKey
             twitterApiKey
             aiMedsciApiToken
+            hubbleApiKey
         env:
           appId: ${{ secrets.APP_ID }}
           appSecret: ${{ secrets.APP_SECRET }}
@@ -95,3 +97,4 @@ jobs:
           deepseekApiKey: ${{ secrets.DEEPSEEK_API_KEY }}
           twitterApiKey: ${{ secrets.TWITTER_API_KEY }}
           aiMedsciApiToken: ${{ secrets.AI_MEDSCI_API_TOKEN }}
+          hubbleApiKey: ${{ secrets.HUBBLE_API_KEY }}

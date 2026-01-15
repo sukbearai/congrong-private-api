@@ -6,6 +6,10 @@
 export default defineEventHandler(async (event) => {
   const { appId, appSecret } = useRuntimeConfig(event)
 
+  if (event.path.startsWith('/webhooks') || event.path.startsWith('/telegram') || event.path.startsWith('/hubble')) {
+    return
+  }
+
   if (!appId || !appSecret) {
     return createErrorResponse('请配置 appId 和 appSecret 环境变量', 500)
   }

@@ -17,9 +17,10 @@ class TelegramBotSingleton {
         },
       }
 
+      // eslint-disable-next-line node/prefer-global/process
       const isProduction = process.env.NODE_ENV === 'production'
 
-      if (telegram.proxyUrl && !isProduction) {
+      if (telegram.proxyUrl && !isProduction && telegram.proxyUrl.startsWith('socks')) {
         clientOptions.client.baseFetchConfig.agent = new SocksProxyAgent(telegram.proxyUrl)
       }
 

@@ -27,6 +27,8 @@ export default defineEventHandler(async (event) => {
     '/exchanges',
     '/finance',
     '/api/thirdparty/twitter',
+    '/webhooks',
+    '/hubble',
   ]
 
   // 需要特殊token鉴权的路径
