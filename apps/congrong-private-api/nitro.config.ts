@@ -58,6 +58,12 @@ export default defineNitroConfig({
         'access-control-allow-methods': 'POST, GET, OPTIONS',
       },
     },
+    '/api/words-count/**': {
+      cors: true,
+      headers: {
+        'access-control-allow-methods': 'POST, GET, OPTIONS',
+      },
+    },
   },
 
   storage: {
