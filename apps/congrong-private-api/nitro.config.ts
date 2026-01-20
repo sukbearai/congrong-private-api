@@ -61,7 +61,9 @@ export default defineNitroConfig({
     '/api/words-count/**': {
       cors: true,
       headers: {
+        'access-control-allow-origin': '*',
         'access-control-allow-methods': 'POST, GET, OPTIONS',
+        'access-control-allow-headers': 'Content-Type, Authorization',
       },
     },
   },
