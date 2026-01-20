@@ -29,6 +29,7 @@ export default defineEventHandler(async (event) => {
     '/api/thirdparty/twitter',
     '/webhooks',
     '/hubble',
+    '/api/words-count',
   ]
 
   // 需要特殊token鉴权的路径
