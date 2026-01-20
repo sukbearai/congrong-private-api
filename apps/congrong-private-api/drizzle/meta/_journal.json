@@ -50,6 +50,13 @@
       "when": 1762990649108,
       "tag": "0006_mean_lionheart",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1768890781298,
+      "tag": "0007_free_black_queen",
+      "breakpoints": true
     }
   ]
 }
