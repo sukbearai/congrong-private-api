@@ -1,4 +1,4 @@
-/* eslint-disable ts/no-use-before-define */
+import { addHours, format } from 'date-fns'
 import { bot } from '~/utils/bot'
 import { getTelegramChannel } from '~/utils/telegram'
 
@@ -19,6 +19,9 @@ export default eventHandler(async (event) => {
     else if (payload.type === 'hyperliquid_fill') {
       message = formatHyperliquidFillMessage(payload as HyperliquidFillPayload)
     }
+    else if (payload.type === 'Inflow' || payload.type === 'Outflow') {
+      message = formatFlowMessage(payload as HubbleSignalPayload)
+    }
     else {
       // Send raw JSON for other types
       message = JSON.stringify(payload, null, 2)
@@ -34,13 +37,61 @@ export default eventHandler(async (event) => {
   }
 })
 
+function formatNumber(num: number | string, min = 2, max = 2) {
+  return Number(num).toLocaleString('en-US', { minimumFractionDigits: min, maximumFractionDigits: max })
+}
+
+function formatFlowMessage(payload: HubbleSignalPayload): string {
+  const { data, tag, type } = payload
+  const isInflow = type === 'Inflow'
+
+  // Format numbers
+  const amount = formatNumber(data.amount, 0, 4)
+  const amountUsd = formatNumber(data.amount_usd)
+
+  // Get address labels
+  const getLabel = (address: string) => {
+    if (tag && tag[address]) {
+      const info = tag[address]
+      const tags = info.tag.filter(t => t !== 'CEX' && t !== 'Deposit Address').join(', ')
+      const source = info.source || ''
+      // If we have source and tags, combine them.
+      // Example: Binance (Deposit Address, CEX) -> We filtered out Deposit Address/CEX.
+      // If tags is empty after filter, just return source.
+      if (source && tags) { return `${source} (${tags})` }
+      if (source) { return source }
+      if (tags) { return tags }
+    }
+    return `${address.slice(0, 4)}...${address.slice(-4)}`
+  }
+
+  const senderLabel = getLabel(data.sender)
+  const receiverLabel = getLabel(data.receiver)
+
+  // Build message
+  const emoji = isInflow ? '🟢' : '🔴'
+  const action = isInflow ? '大额流入' : '大额流出'
+
+  const lines = [
+    `${emoji} <b>${action}提醒</b>`,
+    '',
+    `💰 <b>金额:</b> ${amount} ${data.symbol} ($${amountUsd})`,
+    `📤 <b>发送方:</b> ${senderLabel}`,
+    `📥 <b>接收方:</b> ${receiverLabel}`,
+    '',
+    `⛓️ ${payload.chain} | TX: <code>${payload.signature.slice(0, 16)}...</code>`,
+  ]
+
+  return lines.join('\n')
+}
+
 function formatPolymarketMessage(payload: PolymarketPayload): string {
   const { data, tag } = payload
   const trader = Object.keys(tag || {})[0]
   const traderInfo = trader ? tag![trader] : null
 
   // Format numbers
-  const amount = Number.parseFloat(data.CollateralAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const amount = formatNumber(data.CollateralAmount)
   const price = Number.parseFloat(data.PriceStr)
   const potentialReturn = ((1 / price - 1) * 100).toFixed(1)
 
@@ -62,7 +113,7 @@ function formatPolymarketMessage(payload: PolymarketPayload): string {
   // Add trader info if available
   if (traderInfo) {
     const indicator = traderInfo.indicator
-    const totalPnl = indicator.total_pnl.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const totalPnl = formatNumber(indicator.total_pnl)
     const roi = (indicator.roi * 100).toFixed(1)
     const winRate = (indicator.win_rate * 100).toFixed(1)
 
@@ -99,14 +150,9 @@ function formatHyperliquidFillMessage(payload: HyperliquidFillPayload): string {
   const netPnl = closedPnl - fee
 
   // Format time
-  const tradeTime = new Date(data.time).toLocaleString('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  // Hyperliquid times are in ms. Cloudflare Workers usage implies UTC environment usually.
+  // We want Asia/Shanghai (UTC+8).
+  const tradeTime = format(addHours(new Date(data.time), 8), 'yyyy/MM/dd HH:mm')
 
   // Determine emoji based on direction and side
   const directionEmoji = data.dir === 'Long > Short' ? '🔴' : '🟢'
@@ -121,10 +167,10 @@ function formatHyperliquidFillMessage(payload: HyperliquidFillPayload): string {
     `📊 <b>操作:</b> ${data.dir} (${sideText})`,
     '',
     `💰 <b>交易详情:</b>`,
-    `├ 成交价格: $${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`,
-    `├ 成交数量: ${size.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ${data.coin}`,
-    `├ 名义价值: $${notional.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-    `├ 起始仓位: ${Number.parseFloat(data.start_position).toLocaleString('en-US')}`,
+    `├ 成交价格: $${formatNumber(price, 2, 4)}`,
+    `├ 成交数量: ${formatNumber(size, 1, 1)} ${data.coin}`,
+    `├ 名义价值: $${formatNumber(notional)}`,
+    `├ 起始仓位: ${formatNumber(data.start_position, 0, 20)}`,
     `└ 杠杆模式: ${data.crossed ? '全仓' : '逐仓'}`,
   ]
 
@@ -132,15 +178,15 @@ function formatHyperliquidFillMessage(payload: HyperliquidFillPayload): string {
   lines.push(
     '',
     `${pnlEmoji} <b>盈亏情况:</b>`,
-    `├ 平仓盈亏: ${closedPnl > 0 ? '+' : ''}$${closedPnl.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-    `├ 手续费: $${fee.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-    `└ 净盈亏: ${netPnl > 0 ? '+' : ''}$${netPnl.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    `├ 平仓盈亏: ${closedPnl > 0 ? '+' : ''}$${formatNumber(closedPnl)}`,
+    `├ 手续费: $${formatNumber(fee)}`,
+    `└ 净盈亏: ${netPnl > 0 ? '+' : ''}$${formatNumber(netPnl)}`,
   )
 
   // Add trader info if available
   if (traderInfo && traderInfo.metrics && traderInfo.metrics.length > 0) {
     const metric = traderInfo.metrics[0]
-    const totalPnl = metric.total_pnl.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const totalPnl = formatNumber(metric.total_pnl)
     const roi = (metric.roi * 100).toFixed(2)
     const tags = traderInfo.tag.join(', ')
 
