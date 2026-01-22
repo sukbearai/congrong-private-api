@@ -47,26 +47,34 @@ function formatFlowMessage(payload: HubbleSignalPayload): string {
 
   // Format numbers
   const amount = formatNumber(data.amount, 0, 4)
-  const amountUsd = formatNumber(data.amount_usd)
+  const amountUsdValue = Number(data.amount_usd) || 0
+  const amountUsd = amountUsdValue.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+
+  // Solscan helpers
+  const getTxLink = (sig: string) => `<a href="https://solscan.io/tx/${sig}">Solana Transaction</a>`
+  const getAddrLink = (addr: string, label: string) => `<a href="https://solscan.io/account/${addr}">${label}</a>`
+  const getTokenLink = (addr: string, symbol: string) => `<a href="https://solscan.io/token/${addr}">${symbol}</a>`
 
   // Get address labels
   const getLabel = (address: string) => {
+    let label = `${address.slice(0, 4)}...${address.slice(-4)}`
     if (tag && tag[address]) {
       const info = tag[address]
       const tags = info.tag.filter(t => t !== 'CEX' && t !== 'Deposit Address').join(', ')
       const source = info.source || ''
-      // If we have source and tags, combine them.
-      // Example: Binance (Deposit Address, CEX) -> We filtered out Deposit Address/CEX.
-      // If tags is empty after filter, just return source.
-      if (source && tags) { return `${source} (${tags})` }
-      if (source) { return source }
-      if (tags) { return tags }
+      if (source && tags) { label = `${source} (${tags})` }
+      else if (source) { label = source }
+      else if (tags) { label = tags }
     }
-    return `${address.slice(0, 4)}...${address.slice(-4)}`
+    return getAddrLink(address, label)
   }
 
   const senderLabel = getLabel(data.sender)
   const receiverLabel = getLabel(data.receiver)
+
+  // Handle Symbol display
+  const displaySymbol = (data.symbol && data.symbol !== 'UNKNOWN') ? data.symbol : 'Token'
+  const tokenLabel = getTokenLink(data.token, displaySymbol)
 
   // Build message
   const emoji = isInflow ? '🟢' : '🔴'
@@ -75,11 +83,11 @@ function formatFlowMessage(payload: HubbleSignalPayload): string {
   const lines = [
     `${emoji} <b>${action}提醒</b>`,
     '',
-    `💰 <b>金额:</b> ${amount} ${data.symbol} ($${amountUsd})`,
+    `💰 <b>金额:</b> ${amount} ${tokenLabel} (${amountUsd})`,
     `📤 <b>发送方:</b> ${senderLabel}`,
     `📥 <b>接收方:</b> ${receiverLabel}`,
     '',
-    `⛓️ ${payload.chain} | TX: <code>${payload.signature.slice(0, 16)}...</code>`,
+    `🔗 ${getTxLink(payload.signature)}`,
   ]
 
   return lines.join('\n')
