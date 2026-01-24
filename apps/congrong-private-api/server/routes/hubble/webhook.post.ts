@@ -73,7 +73,8 @@ function formatFlowMessage(payload: HubbleSignalPayload): string {
   const receiverLabel = getLabel(data.receiver)
 
   // Handle Symbol display
-  const displaySymbol = (data.symbol && data.symbol !== 'UNKNOWN') ? data.symbol : 'Token'
+  const hasSymbol = data.symbol && data.symbol !== 'UNKNOWN'
+  const displaySymbol = hasSymbol ? data.symbol : (data.token ? `${data.token.slice(0, 4)}...${data.token.slice(-4)}` : 'Token')
   const tokenLabel = getTokenLink(data.token, displaySymbol)
 
   // Build message
@@ -84,11 +85,18 @@ function formatFlowMessage(payload: HubbleSignalPayload): string {
     `${emoji} <b>${action}提醒</b>`,
     '',
     `💰 <b>金额:</b> ${amount} ${tokenLabel} (${amountUsd})`,
+  ]
+
+  if (!hasSymbol && data.token) {
+    lines.push(`🔑 <b>Token:</b> <code>${data.token}</code>`)
+  }
+
+  lines.push(
     `📤 <b>发送方:</b> ${senderLabel}`,
     `📥 <b>接收方:</b> ${receiverLabel}`,
     '',
     `🔗 ${getTxLink(payload.signature)}`,
-  ]
+  )
 
   return lines.join('\n')
 }
