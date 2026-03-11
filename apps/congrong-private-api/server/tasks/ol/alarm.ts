@@ -11,7 +11,7 @@ import { appendEntry, assemble, buildHeader, splitMessage } from '../../utils/al
 import { fetchWithRetry } from '../../utils/fetchWithRetry'
 import { createHistoryManager } from '../../utils/historyManager'
 import { buildTaskResult } from '../../utils/taskResult'
-import { getTelegramChannel } from '../../utils/telegram'
+import { sendNotification } from '../../utils/notify'
 
 interface AlarmHistoryRecord {
   symbol: string
@@ -142,7 +142,7 @@ export default defineTask({
       const assembled = assemble(lines)
       const parts = splitMessage(assembled)
       for (const part of parts) {
-        await bot.api.sendMessage(getTelegramChannel('ol:alarm'), part)
+        await sendNotification('ol:alarm', part)
       }
       console.log('✅ 消息发送成功')
 
@@ -154,7 +154,7 @@ export default defineTask({
     }
     catch (error) {
       console.error(`💥 未平仓合约监控任务失败: ${error instanceof Error ? error.message : '未知错误'}`)
-      try { await bot.api.sendMessage(getTelegramChannel('ol:alarm'), `❌ 未平仓合约监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`) }
+      try { await sendNotification('ol:alarm', `❌ 未平仓合约监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`) }
       catch {}
       return buildTaskResult({ startTime, result: 'error', error: error instanceof Error ? error.message : '未知错误', message: '任务失败' })
     }

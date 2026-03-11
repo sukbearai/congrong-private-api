@@ -39,7 +39,7 @@ import { fetchWithRetry } from '../../utils/fetchWithRetry'
 import { buildFingerprint, createHistoryManager } from '../../utils/historyManager'
 import { RequestQueue } from '../../utils/queue'
 import { buildTaskResult } from '../../utils/taskResult'
-import { getTelegramChannel } from '../../utils/telegram'
+import { sendNotification } from '../../utils/notify'
 
 interface BybitTickerResponse {
   retCode: number
@@ -368,7 +368,7 @@ export default defineTask({
       if (failures.length) { appendEntry(lines, `⚠️ 获取失败: ${failures.map(f => f.symbol).join(', ')}`) }
       const assembled = assemble(lines)
       const parts = splitMessage(assembled)
-      for (const part of parts) { await bot.api.sendMessage(getTelegramChannel('ol:mc'), part) }
+      for (const part of parts) { await sendNotification('ol:mc', part) }
       console.log('✅ 消息发送成功')
 
       const newRecords: HistoryRecord[] = deduped.map(i => ({
@@ -386,7 +386,7 @@ export default defineTask({
     }
     catch (error) {
       console.error('💥 OL/MC 监控任务失败:', error)
-      try { await bot.api.sendMessage(getTelegramChannel('ol:mc'), `❌ OL/MC 监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`) }
+      try { await sendNotification('ol:mc', `❌ OL/MC 监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`) }
       catch { }
       return buildTaskResult({ startTime, result: 'error', error: error instanceof Error ? error.message : '未知错误', message: '任务失败' })
     }

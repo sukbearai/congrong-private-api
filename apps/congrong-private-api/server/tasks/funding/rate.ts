@@ -8,7 +8,7 @@ import { appendEntry, assemble, buildHeader, splitMessage } from '../../utils/al
 import { fetchWithRetry } from '../../utils/fetchWithRetry'
 import { buildFingerprint, createHistoryManager } from '../../utils/historyManager'
 import { buildTaskResult } from '../../utils/taskResult'
-import { getTelegramChannel } from '../../utils/telegram'
+import { sendNotification } from '../../utils/notify'
 
 // 定义 JSON 存储 API 读取响应的类型
 interface JsonStorageReadResponse {
@@ -297,7 +297,6 @@ export default defineTask({
       const windowMinutes = 2
       const fundingRateThreshold = alertThresholds.fundingRateWindowChange
       const taskName = 'funding:rate'
-      const channelId = getTelegramChannel(taskName)
 
       console.log(`🚀 资金费率监控任务开始 - 监控${symbols.length}个币种, 时间窗口${windowMinutes}分钟, 阈值${fundingRateThreshold * 100}%`)
 
@@ -532,7 +531,7 @@ export default defineTask({
       }
       const assembled = assemble(lines)
       const parts = splitMessage(assembled)
-      for (const p of parts) { await bot.api.sendMessage(channelId, p) }
+      for (const p of parts) { await sendNotification(taskName, p) }
       console.log(`✅ 消息发送成功`)
 
       // 记录新的通知历史并写入 HistoryManager
@@ -577,8 +576,7 @@ export default defineTask({
       console.error(`💥 资金费率监控任务失败: ${error instanceof Error ? error.message : '未知错误'} (${executionTime}ms)`)
 
       try {
-        const channel = getTelegramChannel('funding:rate')
-        await bot.api.sendMessage(channel, `❌ 资金费率监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
+        await sendNotification('funding:rate', `❌ 资金费率监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
       }
       catch (botError) {
         console.error('❌ 发送错误消息失败:', botError)

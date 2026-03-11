@@ -4,7 +4,7 @@ import { fetchWithRetry } from '../../utils/fetchWithRetry'
 import { buildFingerprint, createHistoryManager } from '../../utils/historyManager'
 import { escapeMarkdown, truncate } from '../../utils/markdown'
 import { buildTaskResult } from '../../utils/taskResult'
-import { getTelegramChannel } from '../../utils/telegram'
+import { sendNotification } from '../../utils/notify'
 
 interface BybitAnnouncementItem {
   title: string
@@ -65,7 +65,6 @@ export default defineTask({
     const storage = useStorage('db')
     const historyKey = 'telegram:announcement_history'
     const taskName = 'market:announcement'
-    const telegramChannelId = getTelegramChannel(taskName)
 
     // 获取配置信息
     const config = useRuntimeConfig()
@@ -133,7 +132,7 @@ export default defineTask({
       }
       const assembled = assemble(lines)
       const parts = splitMessage(assembled)
-      for (const p of parts) { await bot.api.sendMessage(telegramChannelId, p) }
+      for (const p of parts) { await sendNotification(taskName, p) }
 
       // 已在 filterNew 中放入内存 map，此处只需持久化
       await manager.persist()
@@ -141,7 +140,7 @@ export default defineTask({
     }
     catch (error) {
       try {
-        await bot.api.sendMessage(telegramChannelId, `❌ Bybit新币公告监控任务失败\n⏰ ${formatDateTime(Date.now())}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
+        await sendNotification(taskName, `❌ Bybit新币公告监控任务失败\n⏰ ${formatDateTime(Date.now())}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
       }
       catch { }
       return buildTaskResult({ startTime, result: 'error', error: error instanceof Error ? error.message : '未知错误', message: '任务失败' })

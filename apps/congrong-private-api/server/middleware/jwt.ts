@@ -30,6 +30,7 @@ export default defineEventHandler(async (event) => {
     '/webhooks',
     '/hubble',
     '/api/words-count',
+    '/discord',
   ]
 
   // 需要特殊token鉴权的路径

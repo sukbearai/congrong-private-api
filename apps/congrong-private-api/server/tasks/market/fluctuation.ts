@@ -6,7 +6,7 @@ import { fetchWithRetry } from '../../utils/fetchWithRetry'
 // 定义历史记录接口
 import { buildFingerprint, createHistoryManager } from '../../utils/historyManager'
 import { buildTaskResult } from '../../utils/taskResult'
-import { getTelegramChannel } from '../../utils/telegram'
+import { sendNotification } from '../../utils/notify'
 
 interface KlineApiResponse {
   retCode: number
@@ -393,7 +393,7 @@ export default defineTask({
       }
       const assembled = assemble(lines)
       const parts = splitMessage(assembled)
-      for (const p of parts) { await bot.api.sendMessage(getTelegramChannel('market:fluctuation'), p) }
+      for (const p of parts) { await sendNotification('market:fluctuation', p) }
       console.log(`✅ 消息发送成功`)
 
       // 新记录加入 manager
@@ -419,7 +419,7 @@ export default defineTask({
       console.error(`💥 任务失败: ${error instanceof Error ? error.message : '未知错误'} (${executionTime}ms)`)
 
       try {
-        await bot.api.sendMessage(getTelegramChannel('market:fluctuation'), `❌ 多币种价格监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
+        await sendNotification('market:fluctuation', `❌ 多币种价格监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
       }
       catch (botError) {
         console.error(`❌ 发送错误消息失败:`, botError)

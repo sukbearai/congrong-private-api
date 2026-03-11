@@ -6,7 +6,7 @@ import { fetchWithRetry } from '../../utils/fetchWithRetry'
 import { buildFingerprint, createHistoryManager } from '../../utils/historyManager'
 import { aliasForExchange } from '../../utils/symbolAlias'
 import { buildTaskResult } from '../../utils/taskResult'
-import { getTelegramChannel } from '../../utils/telegram'
+import { sendNotification } from '../../utils/notify'
 
 // 定义大户多空比值数据接口
 interface LongShortRatioItem {
@@ -243,7 +243,7 @@ export default defineTask({
       }
       const assembled = assemble(lines)
       const parts = splitMessage(assembled)
-      for (const p of parts) { await bot.api.sendMessage(getTelegramChannel('account:ratio'), p) }
+      for (const p of parts) { await sendNotification('account:ratio', p) }
       console.log(`✅ 消息发送成功`)
 
       // 持久化新历史记录（内部会做一次过期裁剪与远端合并）
@@ -258,7 +258,7 @@ export default defineTask({
       console.error(`💥 大户多空比监控任务失败: ${error instanceof Error ? error.message : '未知错误'}`)
 
       try {
-        await bot.api.sendMessage(getTelegramChannel('account:ratio'), `❌ 大户多空比监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
+        await sendNotification('account:ratio', `❌ 大户多空比监控任务失败\n⏰ ${formatCurrentTime()}\n错误: ${error instanceof Error ? error.message : '未知错误'}`)
       }
       catch (botError) {
         console.error('❌ 发送错误消息失败:', botError)
